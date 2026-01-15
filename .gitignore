@@ -1,0 +1,16 @@
+**/bin/
+**/dist/
+**/*.exe
+**/*.log
+**/tmp/
+**/.idea/
+**/.vscode/
+**/.DS_Store
+
+# Project-specific
+/sh/
+/auth-service/docker/
+/auth-service/files/
+/gateway/files/
+/collab-service/files/
+

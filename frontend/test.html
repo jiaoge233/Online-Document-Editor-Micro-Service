@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>在线文档编辑器测试</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: rgba(255, 255, 255, 0.06);
+            --panel-strong: rgba(255, 255, 255, 0.10);
+            --border: rgba(255, 255, 255, 0.14);
+            --text: rgba(255, 255, 255, 0.92);
+            --muted: rgba(255, 255, 255, 0.68);
+            --primary: #5b8cff;
+            --primary-2: #7c4dff;
+            --danger: #ff5b6b;
+            --shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+            --radius: 14px;
+            --radius-sm: 10px;
+            --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            font-family: var(--sans);
+            color: var(--text);
+            background:
+                radial-gradient(1200px 800px at 20% 10%, rgba(91, 140, 255, 0.35), transparent 55%),
+                radial-gradient(900px 700px at 85% 15%, rgba(124, 77, 255, 0.28), transparent 55%),
+                radial-gradient(900px 700px at 60% 95%, rgba(0, 255, 209, 0.10), transparent 60%),
+                linear-gradient(180deg, #070a12, var(--bg));
+        }
+
+        .app {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 28px 18px 40px;
+        }
+
+        .header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .title {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: 0.2px;
+        }
+
+        .subtitle {
+            margin-top: 6px;
+            margin-bottom: 0;
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 14px;
+            align-items: start;
+        }
+
+        @media (max-width: 960px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .cardHeader {
+            padding: 14px 14px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .cardTitle {
+            font-size: 13px;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.78);
+        }
+
+        .cardBody { padding: 14px; }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .btn {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+            padding: 10px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+            user-select: none;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.10);
+            border-color: rgba(255, 255, 255, 0.22);
+            transform: translateY(-1px);
+        }
+
+        .btn:active { transform: translateY(0px); }
+
+        .btnPrimary {
+            border: 0;
+            background: linear-gradient(135deg, var(--primary), var(--primary-2));
+            box-shadow: 0 10px 22px rgba(91, 140, 255, 0.18);
+        }
+
+        .btnDanger {
+            border: 1px solid rgba(255, 91, 107, 0.35);
+            background: rgba(255, 91, 107, 0.12);
+        }
+
+        .form {
+            display: grid;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .label {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(0, 0, 0, 0.18);
+            color: var(--text);
+            outline: none;
+            transition: border-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .input:focus {
+            border-color: rgba(91, 140, 255, 0.65);
+            box-shadow: 0 0 0 4px rgba(91, 140, 255, 0.18);
+        }
+
+        .pill {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px dashed rgba(255, 255, 255, 0.20);
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.88);
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.5;
+            word-break: break-all;
+        }
+
+        #status {
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            padding: 10px 12px;
+            min-height: 42px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.86);
+        }
+
+        #messages {
+            height: 320px;
+            overflow: auto;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(0, 0, 0, 0.22);
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        #messages > div {
+            padding: 6px 8px;
+            border-radius: 10px;
+        }
+
+        #messages > div:nth-child(odd) { background: rgba(255, 255, 255, 0.04); }
+
+        .editorWrap {
+            display: grid;
+            gap: 10px;
+        }
+
+        #editor {
+            width: 100%;
+            height: 340px;
+            resize: vertical;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(0, 0, 0, 0.18);
+            color: var(--text);
+            padding: 12px;
+            outline: none;
+            font-family: var(--mono);
+            font-size: 13px;
+            line-height: 1.55;
+            transition: border-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        #editor:focus {
+            border-color: rgba(124, 77, 255, 0.65);
+            box-shadow: 0 0 0 4px rgba(124, 77, 255, 0.18);
+        }
+
+        #caretInfo {
+            font-size: 12px;
+            color: var(--muted);
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.10);
+        }
+
+        .helper {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="header">
+            <div>
+                <h2 class="title">在线文档编辑器测试</h2>
+                <p class="subtitle">
+                    这是一个最小实践测试页：登录/刷新 Token、WebSocket 连接、创建/加入文档、加载内容、提交操作与 Delta 推送。
+                </p>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="cardHeader">
+                    <div class="cardTitle">控制台</div>
+                </div>
+                <div class="cardBody">
+                    <div class="toolbar">
+                        <button class="btn btnPrimary" onclick="connectWS()">连接 WebSocket</button>
+                        <button class="btn" onclick="RefreshToken()">刷新 token</button>
+                        <button class="btn" onclick="createDocument()">创建文档</button>
+                        <button class="btn" onclick="joinDocument()">加入文档</button>
+                        <button class="btn" onclick="show_alive_members()">查询 hub 在线成员</button>
+                        <button class="btn" onclick="loadDocumentContent()">恢复文档内容到前端</button>
+                        <button class="btn btnDanger" onclick="op_submit()">提交操作</button>
+                    </div>
+
+                    <div class="form">
+                        <div class="field">
+                            <div class="label">用户名</div>
+                            <input class="input" type="text" id="username" placeholder="请输入用户名" />
+                        </div>
+                        <div class="field">
+                            <div class="label">密码</div>
+                            <input class="input" type="text" id="password" placeholder="请输入密码" />
+                        </div>
+                        <div class="field">
+                            <div class="label">文档标题</div>
+                            <input class="input" type="text" id="docTitle" placeholder="请输入文档标题" />
+                        </div>
+                        <div class="field">
+                            <div class="label">当前 docId（WS 返回）</div>
+                            <div class="pill" id="docIdDisplay">（暂无）</div>
+                        </div>
+
+                        <div class="toolbar">
+                            <button class="btn btnPrimary" onclick="login()">登录</button>
+                            <button class="btn" onclick="register()">注册</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="cardHeader">
+                    <div class="cardTitle">编辑区</div>
+                </div>
+                <div class="cardBody">
+                    <div class="editorWrap">
+                        <p class="helper">提示：此处为“全量替换 Delta”最小实现；输入内容会触发 `op_submit` 类型消息发送。</p>
+                        <textarea id="editor"></textarea>
+                        <div id="caretInfo">光标位置: 0, 选区长度: 0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="height: 14px;"></div>
+
+        <div class="card">
+            <div class="cardHeader">
+                <div class="cardTitle">连接状态</div>
+            </div>
+            <div class="cardBody">
+                <div id="status"></div>
+            </div>
+        </div>
+
+        <div style="height: 14px;"></div>
+
+        <div class="card">
+            <div class="cardHeader">
+                <div class="cardTitle">消息日志</div>
+            </div>
+            <div class="cardBody">
+                <div id="messages"></div>
+            </div>
+        </div>
+
+    <script>
+        let ws = null;
+        
+        function log(...args) {
+            const logElement = document.getElementById('messages');
+            if (!logElement) {
+                console.error('Log element not found!');
+                console.log(...args);
+                return;
+            }
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            
+            // 添加时间戳
+            const timeSpan = document.createElement('span');
+            timeSpan.textContent = `[${timestamp}] `;
+            entry.appendChild(timeSpan);
+            
+            // 处理每个参数
+            args.forEach(arg => {
+                const argSpan = document.createElement('span');
+                
+                if (typeof arg === 'object') {
+                    // 如果是对象，转换为绿色字符串
+                    argSpan.textContent = JSON.stringify(arg, null, 2);
+                    argSpan.style.color = 'blue';
+                } else {
+                    // 其他参数保持原样
+                    argSpan.textContent = arg;
+                }
+                
+                // 添加空格分隔
+                argSpan.textContent += ' ';
+                entry.appendChild(argSpan);
+            });
+            
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function updateStatus(status, color) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = status;
+            statusDiv.style.backgroundColor = color;
+        }
+
+        function register() {
+            const password = document.getElementById('password').value;
+            const username = document.getElementById('username').value;
+            
+            fetch('http://localhost:3000/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: username,
+                    password: password
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log('Register response:', data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        function login() {
+            const password = document.getElementById('password').value;
+            const username = document.getElementById('username').value;
+            fetch('http://localhost:3000/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: username,
+                    password: password
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log('Login response:', data);
+
+                if (data.accessToken) {
+                localStorage.setItem('accessToken', data.accessToken);
+                localStorage.setItem('username', username);
+                if (data.refreshToken) {
+                    localStorage.setItem('refreshToken', data.refreshToken);
+                }
+                localStorage.setItem('expiresIn', data.expiresIn);
+                log('Tokens stored in localStorage');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        function RefreshToken() {
+            fetch('http://localhost:3000/auth/refresh', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    refreshToken: localStorage.getItem('refreshToken')
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log('Refresh token response:', data);
+                if (data.accessToken) {
+                    localStorage.setItem('accessToken', data.accessToken);
+                    if (data.refreshToken) {
+                        localStorage.setItem('refreshToken', data.refreshToken);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        function joinDocument() {
+            const docTitle = document.getElementById('docTitle').value;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = JSON.stringify({
+                    type: 'joinDocument',
+                    docTitle: docTitle,
+                    username: localStorage.getItem('username')
+                });
+                ws.send(message);
+                document.getElementById('editor').value = "";
+            }
+        }
+
+        function createDocument() {
+            const docTitle = document.getElementById('docTitle').value;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = JSON.stringify({
+                    type: 'createDocument',
+                    docTitle: docTitle,
+                    username: localStorage.getItem('username')
+                });
+                ws.send(message);
+            }
+        }
+        
+        function connectWS() {
+            const token = localStorage.getItem('accessToken');
+            const url = `ws://localhost:3000/ws?lastKnownRevision=0&token=${encodeURIComponent(token)}`;
+            
+            log(`尝试连接到: ${url}`);
+            updateStatus('连接中...', 'yellow');
+            
+            ws = new WebSocket(url);
+            console.log("ws.url(real) =", ws.url);
+            
+            ws.onopen = function(event) {
+                log('✅ WebSocket 连接成功建立');
+                updateStatus('连接成功', 'lightgreen');
+                log('连接对象: ' + JSON.stringify({
+                    url: event.target.url,
+                    protocol: event.target.protocol,
+                    readyState: event.target.readyState
+                }));
+            };
+            
+            ws.onmessage = function(event) {
+                log('📨 收到消息: ' + event.data);
+                const data = JSON.parse(event.data);
+                switch (data.type) {
+                    case 'op_applied':
+                        if (data.docId == localStorage.getItem('docId')) {
+                            baseRevision = data.currentRevision;
+                        }
+                        break;
+                    case 'loadDocumentContent':
+                        editor.value = data.content || "";
+                        lastText = editor.value;      // 同步本地缓存，避免下一次 delete 长度不对
+                        updateCaretInfo();
+                        baseRevision = data.revision;
+                        log('设置 baseRevision =', baseRevision)
+                        document.getElementById('editor').value = data.content;
+                        break;
+
+                    case 'joinDocument':
+                        localStorage.setItem('docId', data.docId);
+                        updateDocIdDisplay();
+                        break;
+
+                    case 'createDocument':
+                        localStorage.setItem('docId', data.docId);
+                        updateDocIdDisplay();
+                        break;
+
+                    case 'error':
+                        log('❌ 错误: ' + data.content);
+                        break;
+                }
+            };
+            
+            ws.onerror = function(error) {
+                log('❌ WebSocket 错误: ' + JSON.stringify(error));
+                updateStatus('连接错误', 'lightcoral');
+                console.error('WebSocket 错误详情:', error);
+            };
+            
+            ws.onclose = function(event) {
+                log('🔌 WebSocket 连接关闭: code=' + event.code + ', reason=' + JSON.stringify(event.reason));
+                updateStatus('连接已关闭', 'lightgray');
+            };
+        }
+
+        // ==== 文档编辑最小实践 ====
+
+        // 本地缓存的文档内容，用于构造 Delta（最小版：全量替换）
+        let lastText = "";
+        // 客户端标识 & 序号，用于和后端的幂等逻辑对上
+        let clientId = "tab-" + Math.random().toString(36).slice(2);
+        let clientSeq = 1;
+        // 当前已知版本（最小实践先从 0 开始，后面可以在收到 op_applied 时再更新）
+        let baseRevision = 0;
+
+        const editor = document.getElementById('editor');
+        const caretInfo = document.getElementById('caretInfo');
+        const docIdDisplay = document.getElementById('docIdDisplay');
+
+        function updateDocIdDisplay() {
+            if (!docIdDisplay) return;
+            const docId = localStorage.getItem('docId');
+            docIdDisplay.textContent = docId ? docId : "（暂无）";
+        }
+
+        // 更新光标信息显示
+        function updateCaretInfo() {
+            if (!editor || !caretInfo) return;
+            const index = editor.selectionStart;
+            const length = editor.selectionEnd - editor.selectionStart;
+            caretInfo.textContent = `光标位置: ${index}, 选区长度: ${length}`;
+        }
+
+        // 监听光标移动：点击 / 键盘
+        editor.addEventListener('click', updateCaretInfo);
+        editor.addEventListener('keyup', updateCaretInfo);
+
+        // 监听内容变化：最小实践 → 当内容变化就发一次“全量替换”的 Delta
+        editor.addEventListener('input', onEditorInput);
+
+        // 初始化显示（不影响任何业务逻辑）
+        updateDocIdDisplay();
+
+        function onEditorInput() {
+        const newText = editor.value;
+        const oldText = lastText;
+
+        // 构造一个“把旧内容全部删掉，再插入新内容”的 Delta
+        sendFullReplaceDelta(oldText, newText);
+
+        lastText = newText;
+        updateCaretInfo();
+        }
+
+        // 最小实践：全量替换 Delta
+        function sendFullReplaceDelta(oldText, newText) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            log('⚠️ WebSocket 未连接，暂不发送 Delta');
+            return;
+        }
+
+        const ops = [];
+        if (oldText.length > 0) {
+            ops.push({ kind: "delete", count: oldText.length });
+        }
+        if (newText.length > 0) {
+            ops.push({ kind: "insert", text: newText });
+        }
+        if (ops.length === 0) {
+            return; // 空操作不发
+        }
+
+        const msg = {
+            type: "op_submit",
+            docId: localStorage.getItem('docId') || "1",
+            baseRevision: baseRevision,
+            clientId: clientId,
+            clientSeq: clientSeq++,
+            ops: ops,
+        };
+
+        const json = JSON.stringify(msg);
+        ws.send(json);
+        log('📤 发送 Delta: ' + json);
+        }
+
+        function loadDocumentContent() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = JSON.stringify({
+                    type: 'loadDocumentContent',
+                    docId: localStorage.getItem('docId')
+                })
+                ws.send(message);
+                log('📤 发送消息: ' + message);
+            } else {
+                log('⚠️ WebSocket 未连接，无法发送消息');
+            }
+        }
+
+        function show_alive_members() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = JSON.stringify({
+                    type: 'show_alive_members',
+                    docId: localStorage.getItem('docId')
+                });
+                ws.send(message);
+            }
+        }
+
+        function op_submit() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = JSON.stringify({
+                    type: 'saveDocument',
+                    docId: localStorage.getItem('docId'),
+                    baseRevision: baseRevision,
+                    clientId: '1',
+                    clientSeq: 1,
+                    
+                });
+            ws.send(message);
+            log('📤 发送消息: ' + message);
+        } else {
+                log('⚠️ WebSocket 未连接，无法发送消息');
+            }
+        }
+
+    </script>
+</div>
+</body>
+</html>
