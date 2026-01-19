@@ -3,16 +3,15 @@ package user
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"time"
 
-	"errors"
+	"auth-service/backend/internal/cache"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/redis/go-redis/v9"
 )
-
-type mysqlRepository struct {
-	db *sql.DB
-}
 
 type User struct {
 	ID           uint64
@@ -35,7 +34,17 @@ func withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, 3*time.Second)
 }
 
-func CreateUser(ctx context.Context, db *sql.DB, username string, passwordHash []byte) (uint64, error) {
+// updateCache 更新用户缓存
+func updateCache(ctx context.Context, rdb *redis.ClusterClient, user *User) error {
+	data, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+	// 缓存1小时
+	return rdb.Set(ctx, cache.AuthLoginKey(user.Username), data, time.Hour).Err()
+}
+
+func CreateUser(ctx context.Context, rdb *redis.ClusterClient, db *sql.DB, username string, passwordHash []byte) (uint64, error) {
 	ctx, cancel := withTimeout(ctx)
 	// 释放资源
 	defer cancel()
@@ -57,20 +66,45 @@ func CreateUser(ctx context.Context, db *sql.DB, username string, passwordHash [
 		return 0, err
 	}
 	id, _ := res.LastInsertId()
+
+	// 异步或同步写入缓存
+	// 这里选择同步写入，保证一致性
+	user := &User{
+		ID:           uint64(id),
+		Username:     username,
+		PasswordHash: passwordHash,
+	}
+	_ = updateCache(ctx, rdb, user)
+
 	return uint64(id), nil
 }
 
-func GetUserByUsername(ctx context.Context, db *sql.DB, username string) (*User, error) {
+func GetUserByUsername(ctx context.Context, db *sql.DB, rdb *redis.ClusterClient, username string) (*User, error) {
+	// 1. 查缓存
+	cacheKey := cache.AuthLoginKey(username)
+	val, err := rdb.Get(ctx, cacheKey).Result()
+	if err == nil {
+		var user User
+		if err := json.Unmarshal([]byte(val), &user); err == nil {
+			return &user, nil
+		}
+	}
+
+	// 2. 查 DB
 	const ddl = `
 	SELECT id, username, password_hash FROM users WHERE username = ?;
 	`
 	var user User
-	err := db.QueryRowContext(ctx, ddl, username).Scan(&user.ID, &user.Username, &user.PasswordHash)
+	err = db.QueryRowContext(ctx, ddl, username).Scan(&user.ID, &user.Username, &user.PasswordHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
+
+	// 3. 回写缓存
+	_ = updateCache(ctx, rdb, &user)
+
 	return &user, err
 }

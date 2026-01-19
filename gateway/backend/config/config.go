@@ -21,4 +21,7 @@ type Config struct {
 	Collab struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"collab"`
+	Social struct {
+		Path string `mapstructure:"path"`
+	} `mapstructure:"social"`
 }

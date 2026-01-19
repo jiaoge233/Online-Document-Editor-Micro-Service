@@ -22,7 +22,6 @@ func (s *SemaphoreControl) Acquire(ctx context.Context) error {
 	case <-ctx.Done():
 		return errors.New("Acquire Reach time limit")
 	}
-	return nil
 }
 
 func (s *SemaphoreControl) Release() error {
@@ -32,5 +31,4 @@ func (s *SemaphoreControl) Release() error {
 	default:
 		return errors.New("Release Failed, semaphore is not acquired")
 	}
-	return nil
 }

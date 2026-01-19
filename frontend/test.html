@@ -217,6 +217,30 @@
 
         #messages > div:nth-child(odd) { background: rgba(255, 255, 255, 0.04); }
 
+        #toast {
+            position: fixed;
+            left: 50%;
+            bottom: 26px;
+            transform: translateX(-50%) translateY(10px);
+            opacity: 0;
+            pointer-events: none;
+            padding: 10px 14px;
+            border-radius: 12px;
+            background: rgba(12, 14, 20, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+            font-size: 12px;
+            letter-spacing: 0.2px;
+            transition: opacity 180ms ease, transform 180ms ease;
+            z-index: 200;
+        }
+
+        #toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
         .editorWrap {
             display: grid;
             gap: 10px;
@@ -258,6 +282,81 @@
             color: var(--muted);
             line-height: 1.55;
         }
+
+        .sidebar {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        .actionBtn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 120ms ease;
+            position: relative;
+            user-select: none;
+        }
+
+        .actionBtn:hover {
+            background: rgba(255, 255, 255, 0.10);
+            border-color: rgba(255, 255, 255, 0.22);
+            transform: scale(1.05);
+        }
+
+        .actionBtn:active {
+            transform: scale(0.95);
+        }
+
+        .actionBtn.active {
+            background: linear-gradient(135deg, var(--primary), var(--primary-2));
+            border-color: var(--primary);
+            box-shadow: 0 0 20px rgba(91, 140, 255, 0.3);
+        }
+
+        .actionBtn.active.like {
+            box-shadow: 0 0 20px rgba(91, 140, 255, 0.3);
+        }
+
+        .actionBtn.active.question {
+            background: linear-gradient(135deg, #ffa726, #fb8c00);
+            border-color: #ffa726;
+            box-shadow: 0 0 20px rgba(255, 167, 38, 0.3);
+        }
+
+        .actionBtn.active.share {
+            background: linear-gradient(135deg, #66bb6a, #4caf50);
+            border-color: #66bb6a;
+            box-shadow: 0 0 20px rgba(102, 187, 106, 0.3);
+        }
+
+        .count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: var(--danger);
+            color: white;
+            border-radius: 10px;
+            padding: 2px 6px;
+            font-size: 10px;
+            font-weight: bold;
+            min-width: 16px;
+            text-align: center;
+            line-height: 1;
+        }
     </style>
 </head>
 <body>
@@ -278,7 +377,6 @@
                 </div>
                 <div class="cardBody">
                     <div class="toolbar">
-                        <button class="btn btnPrimary" onclick="connectWS()">连接 WebSocket</button>
                         <button class="btn" onclick="RefreshToken()">刷新 token</button>
                         <button class="btn" onclick="createDocument()">创建文档</button>
                         <button class="btn" onclick="joinDocument()">加入文档</button>
@@ -349,8 +447,46 @@
             </div>
         </div>
 
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+        <button class="actionBtn like" onclick="toggleAction('like')" title="点赞">
+            👍
+            <div class="count" id="likeCount">0</div>
+        </button>
+        <button class="actionBtn question" onclick="toggleAction('question_mark')" title="疑问">
+            ❓
+            <div class="count" id="questionCount">0</div>
+        </button>
+        <button class="actionBtn share" onclick="toggleAction('share')" title="分享">
+            📤
+            <div class="count" id="shareCount">0</div>
+        </button>
+    </div>
+
+    <div id="toast" aria-live="polite"></div>
+
     <script>
         let ws = null;
+
+        // 按钮状态跟踪
+        let actionStates = {
+            like: false,
+            question_mark: false,
+            share: false
+        };
+        
+        // 刷新时重置本地保存的数据
+        function resetLocalSession() {
+            localStorage.removeItem('docId');
+            actionStates = {
+                like: false,
+                question_mark: false,
+                share: false
+            };
+            document.getElementById('likeCount').textContent = 0;
+            document.getElementById('questionCount').textContent = 0;
+            document.getElementById('shareCount').textContent = 0;
+        }
         
         function log(...args) {
             const logElement = document.getElementById('messages');
@@ -394,6 +530,20 @@
             const statusDiv = document.getElementById('status');
             statusDiv.innerHTML = status;
             statusDiv.style.backgroundColor = color;
+        }
+
+        let toastTimer = null;
+        function showToast(message, duration = 1800) {
+            const toast = document.getElementById('toast');
+            if (!toast) return;
+            toast.textContent = message;
+            toast.classList.add('show');
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+            }
+            toastTimer = setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
         }
 
         function register() {
@@ -444,6 +594,7 @@
                 }
                 localStorage.setItem('expiresIn', data.expiresIn);
                 log('Tokens stored in localStorage');
+                connectWS();
                 }
             })
             .catch(error => {
@@ -537,6 +688,8 @@
                         baseRevision = data.revision;
                         log('设置 baseRevision =', baseRevision)
                         document.getElementById('editor').value = data.content;
+                        // 加载文档时更新操作数量
+                        updateActionCounts();
                         break;
 
                     case 'joinDocument':
@@ -603,7 +756,9 @@
         editor.addEventListener('input', onEditorInput);
 
         // 初始化显示（不影响任何业务逻辑）
+        resetLocalSession();
         updateDocIdDisplay();
+        updateActionCounts();
 
         function onEditorInput() {
         const newText = editor.value;
@@ -679,13 +834,126 @@
                     baseRevision: baseRevision,
                     clientId: '1',
                     clientSeq: 1,
-                    
+
                 });
             ws.send(message);
             log('📤 发送消息: ' + message);
         } else {
                 log('⚠️ WebSocket 未连接，无法发送消息');
             }
+        }
+
+        // 查询操作数量
+        async function fetchActionValue(actionType) {
+            try {
+                const token = localStorage.getItem('accessToken');
+                const response = await fetch(`http://localhost:3000/social/${actionType}/value`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'docId': localStorage.getItem('docId')
+                    }
+                });
+                const data = await response.json();
+                return data.value || 0;
+            } catch (error) {
+                console.error(`获取${actionType}数量失败:`, error);
+                return 0;
+            }
+        }
+
+        // 增加操作数量
+        async function incrementAction(actionType) {
+            try {
+                const token = localStorage.getItem('accessToken');
+                const response = await fetch(`http://localhost:3000/social/${actionType}/increment`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'docId': localStorage.getItem('docId')
+                    }
+                });
+                const data = await response.json();
+                log(`${actionType}增加成功:`, data);
+                return data;
+            } catch (error) {
+                console.error(`${actionType}增加失败:`, error);
+                return null;
+            }
+        }
+
+        // 减少操作数量
+        async function decrementAction(actionType) {
+            try {
+                const token = localStorage.getItem('accessToken');
+                const response = await fetch(`http://localhost:3000/social/${actionType}/decrement`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'docId': localStorage.getItem('docId')
+                    }
+                });
+                const data = await response.json();
+                log(`${actionType}减少成功:`, data);
+                return data;
+            } catch (error) {
+                console.error(`${actionType}减少失败:`, error);
+                return null;
+            }
+        }
+
+        // 更新按钮数量显示
+        async function updateActionCounts() {
+            const likeCount = await fetchActionValue('like');
+            const questionCount = await fetchActionValue('question_mark');
+            const shareCount = await fetchActionValue('share');
+
+            document.getElementById('likeCount').textContent = likeCount;
+            document.getElementById('questionCount').textContent = questionCount;
+            document.getElementById('shareCount').textContent = shareCount;
+
+            log('更新操作数量:', { like: likeCount, question_mark: questionCount, share: shareCount });
+        }
+
+        // 切换操作状态
+        async function toggleAction(actionType) {
+            const docId = localStorage.getItem('docId');
+            if (!docId) {
+                log('⚠️ 未加入文档，无法执行操作');
+                showToast('未加入文档，操作已拒绝');
+                return;
+            }
+
+            let buttonClass = actionType;
+            if (actionType === 'question_mark') {
+                buttonClass = 'question';
+            } else if (actionType === 'share') {
+                buttonClass = 'share';
+            } else {
+                buttonClass = 'like';
+            }
+
+            const button = document.querySelector(`.actionBtn.${buttonClass}`);
+            const isActive = actionStates[actionType];
+
+            if (isActive) {
+                // 取消操作
+                await decrementAction(actionType);
+                actionStates[actionType] = false;
+                button.classList.remove('active');
+                log(`取消${actionType}操作`);
+            } else {
+                // 执行操作
+                await incrementAction(actionType);
+                actionStates[actionType] = true;
+                button.classList.add('active');
+                log(`执行${actionType}操作`);
+            }
+
+            // 更新数量显示
+            await updateActionCounts();
         }
 
     </script>

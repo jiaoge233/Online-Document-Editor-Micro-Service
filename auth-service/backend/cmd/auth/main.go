@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 
 	"auth-service/backend/internal/authservice"
@@ -23,6 +24,10 @@ type AuthConfig struct {
 	Mysql struct {
 		DSN string `mapstructure:"dsn"`
 	} `mapstructure:"Mysql"`
+	Redis struct {
+		Addrs    []string `mapstructure:"addrs"`
+		Password string   `mapstructure:"password"`
+	} `mapstructure:"Redis"`
 }
 
 func initConfig() (*AuthConfig, error) {
@@ -59,6 +64,11 @@ func main() {
 		log.Fatalf("open mysql: %v", err)
 	}
 
+	rdb := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:    cfg.Redis.Addrs,
+		Password: cfg.Redis.Password,
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
@@ -73,8 +83,8 @@ func main() {
 	// 路由
 	v1 := r.Group("/v1")
 	auth := v1.Group("/auth")
-	auth.POST("/login", func(c *gin.Context) { authservice.Login(c, db) })
-	auth.POST("/register", func(c *gin.Context) { authservice.Register(c, db) })
+	auth.POST("/login", func(c *gin.Context) { authservice.Login(c, db, rdb) })
+	auth.POST("/register", func(c *gin.Context) { authservice.Register(c, db, rdb) })
 	auth.POST("/verify", func(c *gin.Context) {
 		// 正确返回 200 + JSON(claims)；失败返回 401 + JSON(error)
 		authz := c.GetHeader("Authorization")

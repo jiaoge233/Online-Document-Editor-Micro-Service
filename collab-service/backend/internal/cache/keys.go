@@ -4,23 +4,19 @@ import "fmt"
 
 // 键语义：
 // - roomKey(docID):           房间在线成员（ZSet<userId, expireAtUnix>，score=expireAt）
-// - memberKey(docID,userID):  （旧方案）成员心跳键（String，占位"1"，带 TTL）
 // - namesKey(docID):          房间内 userId→username 映射（Hash）
-// - cursorKey(docID,userID):  成员光标/选区 JSON（String，带 TTL）
+// - docsKey():                文档索引集合（Set<docID>）
 
 // 房间集合 room:Set
-// 心跳键 member:String TTL
 // 名字表 names:Hash
-// 光标键 cursor:String TTL
+// 文档索引 docs:Set
 
 const (
-	keyRoomFmt   = "presence:room:%s"       // ZSet<userId, expireAtUnix>
-	keyMemberFmt = "presence:member:%s:%d"  // String "1" with TTL
-	keyNamesFmt  = "presence:room:names:%s" // Hash<userId -> username>
-	keyCursorFmt = "presence:cursor:%s:%d"  // String JSON with TTL
+	keyRoomFmt  = "presence:room:{docID:%s}"       // ZSet<userId, expireAtUnix>
+	keyNamesFmt = "presence:room:names:{docID:%s}" // Hash<userId -> username>
+	keyDocsSet  = "presence:docs"                  // Set<docID>
 )
 
-func roomKey(docID string) string                  { return fmt.Sprintf(keyRoomFmt, docID) }
-func memberKey(docID string, userID uint64) string { return fmt.Sprintf(keyMemberFmt, docID, userID) }
-func namesKey(docID string) string                 { return fmt.Sprintf(keyNamesFmt, docID) }
-func cursorKey(docID string, userID uint64) string { return fmt.Sprintf(keyCursorFmt, docID, userID) }
+func roomKey(docID string) string  { return fmt.Sprintf(keyRoomFmt, docID) }
+func namesKey(docID string) string { return fmt.Sprintf(keyNamesFmt, docID) }
+func docsKey() string              { return keyDocsSet }

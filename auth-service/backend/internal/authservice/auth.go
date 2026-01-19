@@ -8,6 +8,7 @@ import (
 	"database/sql"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 
 	"auth-service/backend/internal/user"
@@ -27,7 +28,7 @@ type RefreshReq struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
-func Login(c *gin.Context, db *sql.DB) {
+func Login(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
 	// 假设前端发送：
 	// POST /api/login
 	// Content-Type: application/json
@@ -48,7 +49,8 @@ func Login(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	u, err := user.GetUserByUsername(c.Request.Context(), db, login_req.Username)
+	// 1. 查找用户
+	u, err := user.GetUserByUsername(c.Request.Context(), db, rdb, login_req.Username)
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
@@ -65,6 +67,7 @@ func Login(c *gin.Context, db *sql.DB) {
 		return
 	}
 
+	// 2.签发 token
 	access_token, _, err := SignAccessToken(u.ID, login_req.Username, 30*time.Minute)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -95,7 +98,7 @@ func Login(c *gin.Context, db *sql.DB) {
 
 }
 
-func Register(c *gin.Context, db *sql.DB) {
+func Register(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
 	var register_req registerReq
 	if err := c.ShouldBindJSON(&register_req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -110,7 +113,7 @@ func Register(c *gin.Context, db *sql.DB) {
 		})
 		return
 	}
-	userID, err := user.CreateUser(c.Request.Context(), db, register_req.Username, passwordHash)
+	userID, err := user.CreateUser(c.Request.Context(), rdb, db, register_req.Username, passwordHash)
 	if err != nil {
 		if errors.Is(err, user.ErrUsernameTaken) {
 			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
@@ -125,8 +128,8 @@ func Register(c *gin.Context, db *sql.DB) {
 }
 
 func Refresh(c *gin.Context) {
-	// 1) 解析 refreshToken；校验 typ == "refresh"
-	// 2) 重新签发新的 access 与 refresh
+	// 1 解析 refreshToken；校验 typ == "refresh"
+	// 2 重新签发新的 access 与 refresh
 	var refresh_req RefreshReq
 
 	if err := c.ShouldBindJSON(&refresh_req); err != nil {

@@ -1,8 +1,14 @@
 running:
-  port: 3000
+  port: 3003
   
 redis:
-  addr: localhost:6379
+  addrs:
+  - "localhost:7001"
+  - "localhost:7002"
+  - "localhost:7003"
+  - "localhost:7004"
+  - "localhost:7005"
+  - "localhost:7006"
   password: "123456"
 
 mysql:
@@ -13,11 +19,5 @@ kafka:
     - localhost:9092
   topic: doc-ops
 
-Auth:
-  Path: http://localhost:3001
-
-Collab:
-  Path: http://localhost:3002
-
-Social:
-  Path: http://localhost:3003
+auth:
+  path: http://localhost:3001

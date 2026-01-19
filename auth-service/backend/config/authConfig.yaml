@@ -3,4 +3,13 @@ Running:
 
 Mysql:
   dsn: root:123456@tcp(localhost:3306)/app?parseTime=true&loc=Local&charset=utf8mb4&loc=Asia%2FShanghai
-  
+
+Redis:
+  addrs: 
+  - "localhost:7001"
+  - "localhost:7002"
+  - "localhost:7003"
+  - "localhost:7004"
+  - "localhost:7005"
+  - "localhost:7006"
+  password: "123456"

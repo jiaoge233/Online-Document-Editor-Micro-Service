@@ -1,0 +1,199 @@
+version: '3.8'
+
+services:
+  redis-node-1:
+    image: redis:7
+    container_name: redis-node-1
+    command: 
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--cluster-enabled"
+      - "yes"
+      - "--cluster-config-file"
+      - "nodes.conf"
+      - "--cluster-node-timeout"
+      - "5000"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "123456"
+      - "--masterauth"
+      - "123456"
+      - "--cluster-announce-ip"
+      - "127.0.0.1"
+      - "--cluster-announce-port"
+      - "7001"
+      - "--cluster-announce-bus-port"
+      - "17001"
+    ports:
+      - "7001:6379"
+      - "17001:17001"
+
+  redis-node-2:
+    image: redis:7
+    container_name: redis-node-2
+    command: 
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--cluster-enabled"
+      - "yes"
+      - "--cluster-config-file"
+      - "nodes.conf"
+      - "--cluster-node-timeout"
+      - "5000"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "123456"
+      - "--masterauth"
+      - "123456"
+      - "--cluster-announce-ip"
+      - "127.0.0.1"
+      - "--cluster-announce-port"
+      - "7002"
+      - "--cluster-announce-bus-port"
+      - "17002"
+    ports:
+      - "7002:6379"
+      - "17002:17002"
+
+  redis-node-3:
+    image: redis:7
+    container_name: redis-node-3
+    command: 
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--cluster-enabled"
+      - "yes"
+      - "--cluster-config-file"
+      - "nodes.conf"
+      - "--cluster-node-timeout"
+      - "5000"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "123456"
+      - "--masterauth"
+      - "123456"
+      - "--cluster-announce-ip"
+      - "127.0.0.1"
+      - "--cluster-announce-port"
+      - "7003"
+      - "--cluster-announce-bus-port"
+      - "17003"
+    ports:
+      - "7003:6379"
+      - "17003:17003"
+
+  redis-node-4:
+    image: redis:7
+    container_name: redis-node-4
+    command: 
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--cluster-enabled"
+      - "yes"
+      - "--cluster-config-file"
+      - "nodes.conf"
+      - "--cluster-node-timeout"
+      - "5000"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "123456"
+      - "--masterauth"
+      - "123456"
+      - "--cluster-announce-ip"
+      - "127.0.0.1"
+      - "--cluster-announce-port"
+      - "7004"
+      - "--cluster-announce-bus-port"
+      - "17004"
+    ports:
+      - "7004:6379"
+      - "17004:17004"
+
+  redis-node-5:
+    image: redis:7
+    container_name: redis-node-5
+    command: 
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--cluster-enabled"
+      - "yes"
+      - "--cluster-config-file"
+      - "nodes.conf"
+      - "--cluster-node-timeout"
+      - "5000"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "123456"
+      - "--masterauth"
+      - "123456"
+      - "--cluster-announce-ip"
+      - "127.0.0.1"
+      - "--cluster-announce-port"
+      - "7005"
+      - "--cluster-announce-bus-port"
+      - "17005"
+    ports:
+      - "7005:6379"
+      - "17005:17005"
+
+  redis-node-6:
+    image: redis:7
+    container_name: redis-node-6
+    command: 
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--cluster-enabled"
+      - "yes"
+      - "--cluster-config-file"
+      - "nodes.conf"
+      - "--cluster-node-timeout"
+      - "5000"
+      - "--appendonly"
+      - "yes"
+      - "--requirepass"
+      - "123456"
+      - "--masterauth"
+      - "123456"
+      - "--cluster-announce-ip"
+      - "127.0.0.1"
+      - "--cluster-announce-port"
+      - "7006"
+      - "--cluster-announce-bus-port"
+      - "17006"
+    ports:
+      - "7006:6379"
+      - "17006:17006"
+
+  # 用于初始化集群的临时任务
+  redis-cluster-init:
+    image: redis:7
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - redis-node-4
+      - redis-node-5
+      - redis-node-6
+    command: >
+      bash -c "echo 'Waiting for Redis nodes to start...' &&
+      sleep 5 &&
+      echo 'yes' | redis-cli --cluster create 
+      redis-node-1:6379 
+      redis-node-2:6379 
+      redis-node-3:6379 
+      redis-node-4:6379 
+      redis-node-5:6379 
+      redis-node-6:6379 
+      --cluster-replicas 1 -a 123456"
+

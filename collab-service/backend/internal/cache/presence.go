@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"strconv"
-	"strings"
 	"time"
 
 	redis "github.com/redis/go-redis/v9"
@@ -19,7 +18,7 @@ type PresenceCache interface {
 
 // 具体实现：基于 redis 的 PresenceCache
 type redisPresence struct {
-	rdb *redis.Client
+	rdb *redis.ClusterClient
 }
 
 type PresenceMember struct {
@@ -27,7 +26,7 @@ type PresenceMember struct {
 	Username string
 }
 
-func NewRedisPresence(rdb *redis.Client) PresenceCache {
+func NewRedisPresence(rdb *redis.ClusterClient) PresenceCache {
 	return &redisPresence{rdb: rdb}
 }
 
@@ -39,29 +38,16 @@ func (p *redisPresence) AddMember(ctx context.Context, docID string, userID uint
 	tx.ZAdd(ctx, roomKey(docID), redis.Z{Score: float64(expireAt), Member: userID})
 	// 名字表（Hash）
 	tx.HSet(ctx, namesKey(docID), userID, username)
+	// 文档索引集合（Set<docID>）
+	tx.SAdd(ctx, docsKey(), docID)
 	_, err := tx.Exec(ctx)
 	return err
 
 }
 
 func (p *redisPresence) GetDocuments(ctx context.Context) ([]string, error) {
-	var documents []string
-	iter := p.rdb.Scan(ctx, 0, "presence:room:*", 0).Iterator()
-	for iter.Next(ctx) {
-		k := iter.Val()
-		// 注意：namesKey 也是以 presence:room: 开头（presence:room:names:{docID}），需要过滤掉
-		if strings.Contains(k, ":names:") {
-			continue
-		}
-		docID := strings.TrimPrefix(k, "presence:room:")
-		if docID != "" {
-			documents = append(documents, docID)
-		}
-	}
-	if err := iter.Err(); err != nil {
-		return nil, err
-	}
-	return documents, nil
+	// 查询活跃文档
+	return p.rdb.SMembers(ctx, docsKey()).Result()
 }
 
 func (p *redisPresence) SetCursor(ctx context.Context, docID string, userID uint64, jsonData []byte, ttl time.Duration) error {
@@ -140,4 +126,34 @@ func (p *redisPresence) GetAliveMembersWithNames(ctx context.Context, docID stri
 		members = append(members, PresenceMember{UserID: aliveIDsUint64[i], Username: name})
 	}
 	return members, nil
+}
+
+func (p *redisPresence) CleanExpiredMembers(ctx context.Context, docID string) error {
+	now := time.Now().Unix()
+	luaScript := `
+	-- KEYS[1] = roomKey(docID)   e.g. presence:room:{docID}
+	-- KEYS[2] = namesKey(docID)  e.g. presence:room:names:{docID}
+	-- KEYS[3] = docsKey()        e.g. presence:docs
+	-- ARGV[1] = now (unix seconds)
+	-- ARGV[2] = docID
+
+	local expired = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", ARGV[1])
+	if #expired > 0 then
+		redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", ARGV[1])
+		redis.call("HDEL", KEYS[2], unpack(expired))
+	end
+
+	if redis.call("ZCARD", KEYS[1]) == 0 then
+		redis.call("DEL", KEYS[1])
+		redis.call("DEL", KEYS[2])
+  		redis.call("SREM", KEYS[3], ARGV[2])
+	end
+	return #expired
+	`
+	script := redis.NewScript(luaScript)
+	_, err := script.Run(ctx, p.rdb, []string{roomKey(docID), namesKey(docID), docsKey()}, now, docID).Int()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	return nil
 }

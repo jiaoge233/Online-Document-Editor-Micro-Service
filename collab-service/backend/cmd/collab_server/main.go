@@ -29,8 +29,8 @@ type CollabConfig struct {
 		DSN string `mapstructure:"dsn"`
 	} `mapstructure:"Mysql"`
 	Redis struct {
-		Addr     string `mapstructure:"addr"`
-		Password string `mapstructure:"password"`
+		Addrs    []string `mapstructure:"addrs"`
+		Password string   `mapstructure:"password"`
 	} `mapstructure:"Redis"`
 	Kafka struct {
 		Brokers []string `mapstructure:"brokers"`
@@ -66,8 +66,8 @@ func main() {
 	}
 	log.Printf("config: %+v", cfg)
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
+	rdb := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:    cfg.Redis.Addrs,
 		Password: cfg.Redis.Password,
 	})
 	dsn := cfg.Mysql.DSN

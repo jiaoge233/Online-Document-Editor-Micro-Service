@@ -48,6 +48,7 @@ func main() {
 
 	authPath := cfg.Auth.Path
 	collabPath := cfg.Collab.Path
+	socialPath := cfg.Social.Path
 	port := cfg.Running.Port
 
 	r := gin.New()
@@ -55,11 +56,14 @@ func main() {
 
 	// 添加全局 CORS 中间件
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // 允许所有来源
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
+		// 允许任意来源（包含 file:// 场景的 Origin: null）；比 AllowOrigins:["*"] 更兼容
+		AllowOriginFunc: func(origin string) bool { return true },
+		AllowMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
+		// 允许前端自定义 header（你前端在用 docid）；同时兼容 docId/doc_id 的写法
+		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "docid", "docId", "doc_id"},
+		ExposeHeaders: []string{"Content-Length"},
+		// 如果你不依赖 Cookie（多数 token 都放 Authorization），这里建议 false，避免某些浏览器对 * / null 的限制
+		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}))
 
@@ -71,10 +75,18 @@ func main() {
 	authUrl, _ := url.Parse(authPath)
 	authProxy := httputil.NewSingleHostReverseProxy(authUrl)
 
+	// 社交服务
+	socialUrl, _ := url.Parse(socialPath)
+	socialProxy := httputil.NewSingleHostReverseProxy(socialUrl)
+
 	r.Any("/auth/*any", func(c *gin.Context) {
 		// 把 /auth/... 映射到 /v1/auth/...
 		c.Request.URL.Path = "/v1" + c.Request.URL.Path
 		authProxy.ServeHTTP(c.Writer, c.Request)
+	})
+
+	r.Any("/social/*any", func(c *gin.Context) {
+		socialProxy.ServeHTTP(c.Writer, c.Request)
 	})
 
 	r.Any("/ws", func(c *gin.Context) {
