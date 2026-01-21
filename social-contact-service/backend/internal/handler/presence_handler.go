@@ -8,15 +8,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"social-contact-service/backend/internal/cache"
+	"social-contact-service/backend/internal/repo"
 )
 
 type PresenceHandler struct {
-	cache cache.PresenceCache
+	repo repo.InteractionRepo
 }
 
-func NewPresenceHandler(c cache.PresenceCache) *PresenceHandler {
-	return &PresenceHandler{cache: c}
+func NewPresenceHandler(r repo.InteractionRepo) *PresenceHandler {
+	return &PresenceHandler{repo: r}
 }
 
 type socialReq struct {
@@ -25,6 +25,7 @@ type socialReq struct {
 
 // 工厂函数
 // 输入：PresenceCache接口定义的函数，包括增减和查询
+// 输出：gin.HandlerFunc，用于处理请求
 // POST 请求的参数是通过请求体传递的，所以需要使用 ShouldBindJSON 方法获取
 func (h *PresenceHandler) makePostDocHandler(
 	fn func(context.Context, string, uint64) (uint64, error),
@@ -95,20 +96,20 @@ func (h *PresenceHandler) makeGetDocHandler(
 }
 
 // 导出
-func (h *PresenceHandler) GetLike() gin.HandlerFunc { return h.makeGetDocHandler(h.cache.GetLike) }
+func (h *PresenceHandler) GetLike() gin.HandlerFunc { return h.makeGetDocHandler(h.repo.GetLike) }
 func (h *PresenceHandler) GetQuestionMark() gin.HandlerFunc {
-	return h.makeGetDocHandler(h.cache.GetQuestionMark)
+	return h.makeGetDocHandler(h.repo.GetQuestionMark)
 }
-func (h *PresenceHandler) GetShare() gin.HandlerFunc { return h.makeGetDocHandler(h.cache.GetShare) }
+func (h *PresenceHandler) GetShare() gin.HandlerFunc { return h.makeGetDocHandler(h.repo.GetShare) }
 
-func (h *PresenceHandler) IncrLike() gin.HandlerFunc { return h.makePostDocHandler(h.cache.IncrLike) }
+func (h *PresenceHandler) IncrLike() gin.HandlerFunc { return h.makePostDocHandler(h.repo.IncrLike) }
 func (h *PresenceHandler) IncrQuestionMark() gin.HandlerFunc {
-	return h.makePostDocHandler(h.cache.IncrQuestionMark)
+	return h.makePostDocHandler(h.repo.IncrQuestionMark)
 }
-func (h *PresenceHandler) IncrShare() gin.HandlerFunc { return h.makePostDocHandler(h.cache.IncrShare) }
+func (h *PresenceHandler) IncrShare() gin.HandlerFunc { return h.makePostDocHandler(h.repo.IncrShare) }
 
-func (h *PresenceHandler) DecrLike() gin.HandlerFunc { return h.makePostDocHandler(h.cache.DecrLike) }
+func (h *PresenceHandler) DecrLike() gin.HandlerFunc { return h.makePostDocHandler(h.repo.DecrLike) }
 func (h *PresenceHandler) DecrQuestionMark() gin.HandlerFunc {
-	return h.makePostDocHandler(h.cache.DecrQuestionMark)
+	return h.makePostDocHandler(h.repo.DecrQuestionMark)
 }
-func (h *PresenceHandler) DecrShare() gin.HandlerFunc { return h.makePostDocHandler(h.cache.DecrShare) }
+func (h *PresenceHandler) DecrShare() gin.HandlerFunc { return h.makePostDocHandler(h.repo.DecrShare) }

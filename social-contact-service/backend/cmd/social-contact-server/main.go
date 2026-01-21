@@ -11,10 +11,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
+	"golang.org/x/sync/singleflight"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
 	"social-contact-service/backend/internal/cache"
 	"social-contact-service/backend/internal/handler"
 	"social-contact-service/backend/internal/httpapi/middleware"
+	"social-contact-service/backend/internal/mysqldb"
 )
 
 type SocialContactConfig struct {
@@ -70,8 +74,15 @@ func main() {
 	}
 	defer rdb.Close()
 
-	presenceCache := cache.NewPresenceCache(rdb)
-	h := handler.NewPresenceHandler(presenceCache)
+	db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("open mysql failed: %v", err)
+	}
+
+	docStatsRepo := mysqldb.NewMySQLDocRepo(db)
+	sf := singleflight.Group{}
+	interactionRepo := cache.NewRedisInteraction(rdb, sf, docStatsRepo)
+	h := handler.NewPresenceHandler(interactionRepo)
 
 	router := gin.New()
 	router.Use(gin.Recovery())

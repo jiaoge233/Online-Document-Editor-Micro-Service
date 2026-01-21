@@ -120,6 +120,9 @@ func AuthMiddleware(authBaseURL string) gin.HandlerFunc {
 
 		c.Set("userId", claims.UserID)
 		c.Set("username", claims.Username)
+		log.Println("claims", claims)
+		log.Println("userId", claims.UserID)
+		log.Println("username", claims.Username)
 		c.Next()
 	}
 }
