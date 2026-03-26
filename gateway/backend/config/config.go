@@ -4,6 +4,9 @@ type Config struct {
 	Running struct {
 		Port int `mapstructure:"port"`
 	} `mapstructure:"running"`
+	MySQL struct {
+		DSN string `mapstructure:"dsn"`
+	} `mapstructure:"mysql"`
 	Auth struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"auth"`

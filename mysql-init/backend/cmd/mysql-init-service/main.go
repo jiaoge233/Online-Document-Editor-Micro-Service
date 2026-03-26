@@ -52,4 +52,5 @@ func main() {
 	mysqlEntity.CreateUserTable()
 	mysqlEntity.CreateDocumentsTable()
 	mysqlEntity.CreateDocumentSnapshotsTable()
+	mysqlEntity.CreateDocumentAnalyticsTable()
 }
