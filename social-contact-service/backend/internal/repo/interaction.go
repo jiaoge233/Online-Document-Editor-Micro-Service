@@ -18,9 +18,12 @@ type InteractionRepo interface {
 	GetLike(ctx context.Context, docID string) (uint64, error)
 	GetQuestionMark(ctx context.Context, docID string) (uint64, error)
 	GetShare(ctx context.Context, docID string) (uint64, error)
+
+	GetDocs(ctx context.Context) ([]string, error)
+	GetDocStats(ctx context.Context, docID string) (*entity.DocStats, error)
 }
 
 type DocStatsRepo interface {
 	GetDocStats(ctx context.Context, docID string) (*entity.DocStats, error)
-	// SetDocStats(ctx context.Context, docID string, stats *entity.DocStats) error
+	SetDocStats(ctx context.Context, docID string, stats *entity.DocStats) error
 }

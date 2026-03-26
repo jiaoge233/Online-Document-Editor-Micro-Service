@@ -84,22 +84,23 @@ func main() {
 	interactionRepo := cache.NewRedisInteraction(rdb, sf, docStatsRepo)
 	h := handler.NewPresenceHandler(interactionRepo)
 
+	go cache.SyncStatsToMySQL(ctx, interactionRepo, docStatsRepo)
+
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(gin.Logger())
 
-	// CORS：如果你是通过 3000 网关/转发访问（网关也会加 CORS），本服务再加一次会导致
 	// Access-Control-Allow-Origin 变成 "null, null" 这种重复值，浏览器会直接拦截。
-	// 所以默认关闭；需要直连本服务调试时，设置环境变量 SOCIAL_ENABLE_CORS=1 再启用。
+	// 默认关闭；需要直连本服务调试时，设置环境变量 SOCIAL_ENABLE_CORS=1 再启用。
 	if os.Getenv("SOCIAL_ENABLE_CORS") == "1" {
 		router.Use(cors.New(cors.Config{
-			// 允许任意来源（包含 file:// 场景的 Origin: null）；比 AllowOrigins:["*"] 更兼容
+			// 允许任意来源
 			AllowOriginFunc: func(origin string) bool { return true },
 			AllowMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-			// 允许前端自定义 header（你前端在用 docid）；同时兼容 docId/doc_id 的写法
+			// 允许前端自定义 header；
 			AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "docid", "docId", "doc_id"},
 			ExposeHeaders: []string{"Content-Length"},
-			// 如果你不依赖 Cookie（多数 token 都放 Authorization），这里建议 false，避免某些浏览器对 * / null 的限制
+			// 如果不依赖 Cookie，这里设置 false，避免某些浏览器对 * / null 的限制
 			AllowCredentials: false,
 			MaxAge:           12 * time.Hour,
 		}))

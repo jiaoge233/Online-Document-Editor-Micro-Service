@@ -9,29 +9,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
 
+	"social-contact-service/backend/internal/entity"
 	"social-contact-service/backend/internal/repo"
 )
 
-// 键名
-// Like: 点赞的文档ID string
-// QuestionMark: 问题标记的文档ID string
-// Share: 分享的文档ID string
-
-// LikedUser: 点赞的用户ID set
-// QuestionMarkedUser: 问题标记的用户ID set
-// SharedUser: 分享的用户ID set
-
-const (
-	// 为何要用{}包住tag ：Redis 会对整个 Key 字符串进行 CRC16 哈希计算（仅{}内部的东西），这样包住让同一个对象分配在同一个机器上面，避免 Lua 脚本等出错
-	// 例子： Like:{docID:100} -> 计算 Hash(docID:100) 、LikedUser:{docID:100} -> 计算 Hash(docID:100)
-	LikeKey         = "Like:{docID:%s}" // Like:{docId}
-	QuestionMarkKey = "QuestionMark:{docID:%s}"
-	ShareKey        = "Share:{docID:%s}"
-
-	LikedUserKey          = "LikedUser:{docID:%s}" // LikeUsers:{docId}
-	QuestionMarkedUserKey = "QuestionMarkedUser:{docID:%s}"
-	SharedUserKey         = "SharedUser:{docID:%s}"
-)
 
 type redisInteraction struct {
 	redisClusterClient *redis.ClusterClient
@@ -97,19 +78,7 @@ func evalChangedCountToUint64(res any) (changed bool, cnt uint64, err error) {
 	return ch == 1, uint64(c), nil
 }
 
-// 获取 key
-func GetLikeKey(docID string) string         { return fmt.Sprintf(LikeKey, docID) }
-func GetQuestionMarkKey(docID string) string { return fmt.Sprintf(QuestionMarkKey, docID) }
-func GetShareKey(docID string) string        { return fmt.Sprintf(ShareKey, docID) }
 
-func GetLikedUserKey(docID string) string          { return fmt.Sprintf(LikedUserKey, docID) }
-func GetQuestionMarkedUserKey(docID string) string { return fmt.Sprintf(QuestionMarkedUserKey, docID) }
-func GetSharedUserKey(docID string) string         { return fmt.Sprintf(SharedUserKey, docID) }
-
-// 获取 value
-// func GetLikeValue(userID string) string { return fmt.Sprintf(LikeValue, userID) }
-// func GetQuestionMarkValue(userID string) string { return fmt.Sprintf(QuestionMarkValue, userID) }
-// func GetShareValue(userID string) string { return fmt.Sprintf(ShareValue, userID) }
 
 func (r *redisInteraction) IncrLike(ctx context.Context, docID string, userID uint64) (uint64, error) {
 	// added： 1：之前不在集合里（第一次点赞），0：之前就在集合里（重复点赞）
@@ -309,4 +278,29 @@ func (r *redisInteraction) GetShare(ctx context.Context, docID string) (uint64, 
 		}
 		return stats.ShareCount, true, nil
 	})
+}
+
+func (r *redisInteraction) GetDocs(ctx context.Context) ([]string, error) {
+	return r.redisClusterClient.SMembers(ctx, DocsSetkey).Result()
+}
+
+func (r *redisInteraction) GetDocStats(ctx context.Context, docID string) (*entity.DocStats, error) {
+	like, err := r.GetLike(ctx, docID)
+	if err != nil {
+		return nil, err
+	}
+	questionMark, err := r.GetQuestionMark(ctx, docID)
+	if err != nil {
+		return nil, err
+	}
+	share, err := r.GetShare(ctx, docID)
+	if err != nil {
+		return nil, err
+	}
+	return &entity.DocStats{
+		DocID:             docID,
+		LikeCount:         like,
+		QuestionMarkCount: questionMark,
+		ShareCount:        share,
+	}, nil
 }
