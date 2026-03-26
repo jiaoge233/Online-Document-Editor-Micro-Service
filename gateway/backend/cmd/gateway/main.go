@@ -51,6 +51,7 @@ func main() {
 	}
 
 	authPath := cfg.Auth.Path
+	authGRPCAddr := cfg.Auth.GRPCAddr
 	collabPath := cfg.Collab.Path
 	socialPath := cfg.Social.Path
 	mysqlDSN := cfg.MySQL.DSN
@@ -107,7 +108,7 @@ func main() {
 	// 这里不再把 /spark 代理给单独服务，而是 gateway 直接查 MySQL。
 	// 这样前端入口不变，但真正的计算已经由 spark-jobs 完成并提前落表。
 	spark := r.Group("/spark")
-	spark.Use(middleware.AuthMiddleware(authPath))
+	spark.Use(middleware.AuthMiddleware(authPath, authGRPCAddr))
 	spark.GET("/document/info", func(c *gin.Context) {
 		// 兼容多种传参方式：
 		// 1. ?doc_id=1

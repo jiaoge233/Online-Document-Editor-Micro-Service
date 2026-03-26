@@ -6,6 +6,7 @@ MySQL:
 
 Auth:
   Path: http://localhost:3001
+  grpc_addr: localhost:50051
 
 Collab:
   Path: http://localhost:3002

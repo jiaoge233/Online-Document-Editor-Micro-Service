@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -13,9 +14,13 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 
+	authpb "auth-service/backend/gen/authpb"
 	"auth-service/backend/internal/authservice"
 	"auth-service/backend/internal/cache"
+	"auth-service/backend/internal/grpcapi"
 	mysqldb "auth-service/backend/internal/mysql_db"
 	"auth-service/backend/internal/user"
 )
@@ -24,6 +29,9 @@ type AuthConfig struct {
 	Running struct {
 		Port int `mapstructure:"Port"`
 	} `mapstructure:"Running"`
+	GRPC struct {
+		Port int `mapstructure:"Port"`
+	} `mapstructure:"GRPC"`
 	Mysql struct {
 		DSN string `mapstructure:"dsn"`
 	} `mapstructure:"Mysql"`
@@ -60,6 +68,10 @@ func main() {
 	}
 	log.Printf("Config file loaded: %+v", cfg)
 	port := cfg.Running.Port
+	grpcPort := cfg.GRPC.Port
+	if grpcPort == 0 {
+		grpcPort = 50051
+	}
 
 	dsn := cfg.Mysql.DSN
 	db, err := sql.Open("mysql", dsn)
@@ -120,6 +132,30 @@ func main() {
 			"message": "OK",
 		})
 	})
-	_ = r.Run(fmt.Sprintf(":%d", port))
+
+	grpcServer := grpc.NewServer()
+	authpb.RegisterAuthServiceServer(grpcServer, grpcapi.NewServer(service))
+	reflection.Register(grpcServer)
+
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort))
+	if err != nil {
+		log.Fatalf("listen grpc: %v", err)
+	}
+
+	errCh := make(chan error, 2)
+
+	go func() {
+		log.Printf("auth HTTP server listening on :%d", port)
+		errCh <- r.Run(fmt.Sprintf(":%d", port))
+	}()
+
+	go func() {
+		log.Printf("auth gRPC server listening on :%d", grpcPort)
+		errCh <- grpcServer.Serve(lis)
+	}()
+
+	if err := <-errCh; err != nil {
+		log.Fatal(err)
+	}
 
 }

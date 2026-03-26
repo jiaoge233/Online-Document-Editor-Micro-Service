@@ -25,7 +25,7 @@
 - `gateway`
   系统统一入口，负责路由转发，也负责对外提供 `/spark/document/info`
 - `auth-service`
-  负责登录、注册、Token 刷新和鉴权
+  负责登录、注册、Token 刷新和鉴权；现在同时提供 HTTP 和 gRPC 两套接口
 - `collab-service`
   负责在线文档协作编辑和 WebSocket 通信
 - `social-contact-service`
@@ -47,6 +47,8 @@
 
 - 用户从前端发起登录请求
 - `gateway` 把请求转发到 `auth-service`
+- `gateway` 在需要鉴权时，会优先通过 gRPC 调用 `auth-service` 的 `VerifyToken`
+- 如果 gRPC 暂时不可用，`gateway` 会回退到原来的 HTTP `/v1/auth/verify`
 - 用户登录成功后，前端带着 Token 进入 WebSocket 协作
 - `collab-service` 处理文档编辑、版本推进、快照保存
 - `social-contact-service` 处理点赞、分享、疑问等互动
@@ -70,6 +72,37 @@
 - 网关专注于提供统一接口
 - 前端不用直接接触 Spark
 
+## 当前服务通信方式
+
+目前这个项目的通信方式我没有做成“全量 gRPC”，而是采用了一个更适合当前阶段的混合方式：
+
+- 前端到 `gateway`：还是走普通 HTTP
+- 前端到协作链路：还是走 WebSocket
+- `gateway` 到 `auth-service` 的鉴权：优先走 gRPC
+- `gateway` 到 `auth-service` 的登录 / 注册转发：暂时还是 HTTP
+- gRPC 不可用时：`gateway` 会自动回退到 HTTP 鉴权接口
+
+这样处理的原因：
+
+- 前端直接配 gRPC 并不如 HTTP / WebSocket 方便
+- 当前最适合先改成 gRPC 的位置，是内部的鉴权调用
+- 这样既能体现服务间 RPC 调用，也不会把前端联调链路一下子改复杂
+
+## gRPC 这部分我现在怎么接进去
+
+目前我先把 gRPC 加在了 `auth-service` 上，主要做了这些事情：
+
+- 增加 `proto/auth.proto`
+- 给 `auth-service` 增加 gRPC Server
+- 给 `gateway` 增加 gRPC Client
+- 在 `gateway` 的鉴权中间件里优先调用 `VerifyToken`
+- 保留原来的 HTTP `/v1/auth/verify` 作为兜底
+
+换句话说，项目里的认证链路：
+
+- 登录：前端 -> `gateway` -> `auth-service` HTTP
+- 鉴权：`gateway` -> `auth-service` gRPC `VerifyToken`
+- 回退：如果 gRPC 不通，就退回 HTTP `Verify`
 ## 当前已经支持的分析内容
 
 Spark 现在会计算这些指标：
@@ -93,6 +126,7 @@ Spark 现在会计算这些指标：
 
 - `gateway`: `3000`
 - `auth-service`: `3001`
+- `auth-service gRPC`: `50051`
 - `collab-service`: `3002`
 - `social-contact-service`: `3003`
 
@@ -163,6 +197,7 @@ spark-submit `
 
 - 微服务拆分
 - 网关统一入口
+- HTTP + gRPC 混合调用
 - WebSocket 协作编辑
 - Redis / MySQL / Kafka 配合
 - Spark 批处理分析
