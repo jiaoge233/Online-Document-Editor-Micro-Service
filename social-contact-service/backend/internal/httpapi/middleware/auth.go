@@ -22,7 +22,7 @@ type VerifyClaims struct {
 	Type     string `json:"type"` // "access"
 }
 
-// authBaseURL 不要带路径：建议是 http://localhost:3001，middleware 自己拼 + "/verify"；否则很容易拼成 .../auth/verify 或双斜杠。
+// authBaseURL 不要带路径： http://localhost:3001，middleware 自己拼 + "/verify"；
 func AuthMiddleware(authBaseURL string) gin.HandlerFunc {
 	client := &http.Client{}
 
@@ -73,7 +73,7 @@ func AuthMiddleware(authBaseURL string) gin.HandlerFunc {
 
 		if resp.StatusCode == http.StatusUnauthorized {
 			var e verifyErrResp
-			_ = json.NewDecoder(resp.Body).Decode(&e) // 尽力解析错误信息
+			_ = json.NewDecoder(resp.Body).Decode(&e)
 			msg := e.Error
 			if msg == "" {
 				msg = "invalid token"

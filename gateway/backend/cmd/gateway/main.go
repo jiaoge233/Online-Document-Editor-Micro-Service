@@ -11,16 +11,14 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-
 	"github.com/spf13/viper"
 
 	"gateway/backend/config"
+	"gateway/internal/controller"
 )
 
 var (
-	buildVersion = "dev"
-	buildCommit  = "local"
-	buildTime    = ""
+	buildTime = ""
 )
 
 func initConfig() (*config.Config, error) {
@@ -52,17 +50,17 @@ func main() {
 	port := cfg.Running.Port
 
 	r := gin.New()
+	r.Use(controller.SemaphoreMiddleware(cfg.Semaphore.Limit))
+
 	r.Use(gin.Logger(), gin.Recovery())
 
 	// 添加全局 CORS 中间件
 	r.Use(cors.New(cors.Config{
-		// 允许任意来源（包含 file:// 场景的 Origin: null）；比 AllowOrigins:["*"] 更兼容
 		AllowOriginFunc: func(origin string) bool { return true },
 		AllowMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		// 允许前端自定义 header（你前端在用 docid）；同时兼容 docId/doc_id 的写法
-		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "docid", "docId", "doc_id"},
-		ExposeHeaders: []string{"Content-Length"},
-		// 如果你不依赖 Cookie（多数 token 都放 Authorization），这里建议 false，避免某些浏览器对 * / null 的限制
+		AllowHeaders:    []string{"Origin", "Content-Type", "Accept", "Authorization", "docId"},
+		ExposeHeaders:   []string{"Content-Length"},
+		// 不依赖 Cookie（多数 token 都放 Authorization）时，这里设置 false，避免某些浏览器对 * / null 的限制
 		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}))

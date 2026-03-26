@@ -6,12 +6,15 @@ import (
 	"time"
 
 	redis "github.com/redis/go-redis/v9"
+
+	"collabServer/backend/internal/entity"
 )
 
 type PresenceCache interface {
 	AddMember(ctx context.Context, docID string, userID uint64, username string, ttl time.Duration) error
 	GetDocuments(ctx context.Context) ([]string, error)
-	GetAliveMembersWithNames(ctx context.Context, docID string) ([]PresenceMember, error)
+	GetAliveMembersWithNames(ctx context.Context, docID string) ([]entity.PresenceMember, error)
+	CleanExpiredMembers(ctx context.Context, docID string) error
 	SetCursor(ctx context.Context, docID string, userID uint64, jsonData []byte, ttl time.Duration) error
 	GetCursor(ctx context.Context, docID string, userID uint64) ([]byte, error)
 }
@@ -19,11 +22,6 @@ type PresenceCache interface {
 // 具体实现：基于 redis 的 PresenceCache
 type redisPresence struct {
 	rdb *redis.ClusterClient
-}
-
-type PresenceMember struct {
-	UserID   uint64
-	Username string
 }
 
 func NewRedisPresence(rdb *redis.ClusterClient) PresenceCache {
@@ -67,7 +65,7 @@ func (p *redisPresence) GetCursor(ctx context.Context, docID string, userID uint
 	return cursor, nil
 }
 
-func (p *redisPresence) GetAliveMembersWithNames(ctx context.Context, docID string) ([]PresenceMember, error) {
+func (p *redisPresence) GetAliveMembersWithNames(ctx context.Context, docID string) ([]entity.PresenceMember, error) {
 	// step1: 清理过期成员，并查询在线成员
 	// 约定：score=expireAt（Unix 秒），expireAt <= now 视为过期
 	now := time.Now().Unix()
@@ -117,13 +115,13 @@ func (p *redisPresence) GetAliveMembersWithNames(ctx context.Context, docID stri
 	if err != nil && err != redis.Nil {
 		return nil, err
 	}
-	members := make([]PresenceMember, 0, len(aliveIDsUint64))
+	members := make([]entity.PresenceMember, 0, len(aliveIDsUint64))
 	for i, v := range names {
 		name := ""
 		if v != nil {
 			name, _ = v.(string)
 		}
-		members = append(members, PresenceMember{UserID: aliveIDsUint64[i], Username: name})
+		members = append(members, entity.PresenceMember{UserID: aliveIDsUint64[i], Username: name})
 	}
 	return members, nil
 }

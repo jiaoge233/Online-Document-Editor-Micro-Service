@@ -51,7 +51,7 @@ func (r *redisInteraction) writeNullCache(ctx context.Context, key string) error
 	return r.redisClusterClient.Set(ctx, key, EmptyCacheMarker, 5*time.Minute).Err()
 }
 
-// 组合策略 (Singleflight + 上述原子操作)
+// 组合策略 (Singleflight + 原子操作)
 func (r *redisInteraction) getWithProtection(
 	ctx context.Context,
 	key string,

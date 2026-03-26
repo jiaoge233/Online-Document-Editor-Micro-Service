@@ -52,8 +52,9 @@
 *   **接入层**: 负责 HTTP 协议解析、参数校验、JWT 鉴权。
 *   **业务逻辑层 (Domain)**: `repo/interaction.go`。定义纯净的业务接口 `InteractionRepo`，不依赖具体实现技术（Redis/MySQL）。
 *   **基础设施层 (Infra)**:
-    *   `cache/redis_interaction.go`: 具体的 Redis 实现。负责拼接 Key、执行 Lua 脚本。
+    *   `cache/redis_interaction.go`: 具体的 Redis 实现。负责拼接 Key、执行 Lua 脚本，并持有 `DocStatsRepo` 用于回源。
     *   `cache/policy.go`: **核心策略层**。拦截对 Redis 的读取请求，透明地处理 Singleflight、Jitter TTL 和空值过滤。
+    *   `mysqldb/mysql_repo.go`: 具体的 MySQL 实现。负责使用 GORM 查询数据库。
 *   **数据持久层**: 物理存储。Redis 负责抗热点流量，MySQL 负责数据兜底和持久化。
 
 ## 3. 风险与对策
@@ -71,97 +72,66 @@
 ```text
 backend/internal/
 ├── repo/
-│   └── interaction.go       # 接口定义：InteractionRepo
+│   └── interaction.go       # 接口定义：InteractionRepo, DocStatsRepo
+├── entity/
+│   └── doc_stats.go         # 实体定义：DocStats
+├── mysqldb/
+│   └── mysql_repo.go        # DB实现：GORM 操作
 └── cache/
-    ├── redis_interaction.go # 接口实现：包含 Incr/Decr/Get 具体逻辑
+    ├── redis_interaction.go # 缓存实现：包含 Incr/Decr/Get 及回源逻辑
     └── policy.go            # 策略实现：包含 Singleflight、随机TTL、getWithProtection 等通用方法
 ```
 
-### 4.2 策略层实现建议 (`backend/internal/cache/policy.go`)
+### 4.2 策略层实现 (`backend/internal/cache/policy.go`)
+此文件封装所有脏活累活，对内提供保护能力。
 
-建议将策略逻辑拆分为独立的小函数，便于组合和测试。
-
-#### A. 基础工具函数
 ```go
-// 1. 防雪崩：获取随机 TTL
-func getRandomTTL() time.Duration {
-    // return BaseTTL + rand...
-}
-```
-
-#### B. 缓存读写原子操作
-```go
-// 2. 读缓存 (包含空值判断)
-// 返回: (value, isHit, error)
-func (r *redisInteraction) readCache(ctx context.Context, key string) (uint64, bool, error) {
-    // Get -> Check Error -> Check EmptyMarker -> Async Expire
-}
-
-// 3. 写正常缓存 (防雪崩)
-func (r *redisInteraction) writeCache(ctx context.Context, key string, val uint64) error {
-    // Set(key, val, getRandomTTL())
-}
-
-// 4. 写空值缓存 (防穿透)
-func (r *redisInteraction) writeNullCache(ctx context.Context, key string) error {
-    // Set(key, EmptyCacheMarker, 5*time.Minute)
-}
-```
-
-#### C. 核心组合逻辑
-```go
-// 5. 组合策略 (Singleflight + 上述原子操作)
+// 核心方法：getWithProtection
+// 封装了：Singleflight(防击穿) + Redis Get + 空值判断(防穿透) + 随机TTL(防雪崩)
 func (r *redisInteraction) getWithProtection(
     ctx context.Context, 
     key string, 
     fetchDB func() (uint64, bool, error),
 ) (uint64, error) {
-    
-    // 使用 Singleflight 包裹整个流程
+    // 1. Singleflight 合并请求
     val, err, _ := r.sf.Do(key, func() (interface{}, error) {
-        
-        // Step 1: 查缓存
+        // 2. 查缓存
         v, hit, err := r.readCache(ctx, key)
-        if hit {
-            return v, nil
-        }
-        if err != nil && err != redis.Nil {
-            return 0, err // Redis 异常
-        }
+        if hit { return v, nil }
         
-        // Step 2: 回源 (Redis Miss)
+        // 3. 回源查 DB
         count, exists, err := fetchDB()
-        if err != nil {
-            return 0, err
-        }
+        if err != nil { return 0, err }
         
-        // Step 3: 写回缓存
+        // 4. 写回缓存 (存在则写值，不存在则写空值)
         if !exists {
             r.writeNullCache(ctx, key)
             return 0, nil
         }
-        
         r.writeCache(ctx, key, count)
         return count, nil
     })
-    
     return val.(uint64), err
 }
 ```
 
-### 4.3 接口实现层调用 (`backend/internal/cache/redis_interaction.go`)
-代码变得非常干净，只关注业务。
+### 4.3 缓存层集成 (`backend/internal/cache/redis_interaction.go`)
+集成 DB Repo，实现自动回源。
 
 ```go
 func (r *redisInteraction) GetLike(ctx context.Context, docID string) (uint64, error) {
     key := GetLikeKey(docID)
     
+    // 调用策略层，传入回源闭包
     return r.getWithProtection(ctx, key, func() (uint64, bool, error) {
-        // 这里写真实的回源逻辑，比如查 MySQL
-        // return db.QueryLikeCount(docID)
+        // 真实回源逻辑
+        stats, err := r.docStatsRepo.GetDocStats(ctx, docID)
+        if err != nil { return 0, false, err }
         
-        // 暂时模拟 DB 未找到
-        return 0, false, nil 
+        if stats == nil {
+            return 0, false, nil // 数据库也不存在 -> 触发写空值缓存
+        }
+        return stats.LikeCount, true, nil // 数据库存在 -> 触发写正常缓存
     })
 }
 ```
@@ -170,4 +140,4 @@ func (r *redisInteraction) GetLike(ctx context.Context, docID string) (uint64, e
 这种**Repository 模式 + 策略分离**的架构使得：
 1.  **接口纯净**：`repo` 层不依赖任何第三方库，业务逻辑只依赖接口。
 2.  **策略复用**：`policy.go` 中的保护逻辑被所有 Get 方法复用。
-3.  **实现解耦**：如果未来更换存储（如 MySQL），只需新增一个实现文件，无需修改 Handler 层代码。
+3.  **数据兜底**：通过集成 MySQL Repo，确保了缓存失效时数据的可靠性，同时利用 Singleflight 保护了数据库免受高并发冲击。

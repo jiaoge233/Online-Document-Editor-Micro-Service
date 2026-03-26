@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"context"
@@ -60,6 +63,9 @@ func initConfig() (*CollabConfig, error) {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cfg, err := initConfig()
 	if err != nil {
 		log.Fatalf("init config failed: %v", err)
@@ -103,7 +109,7 @@ func main() {
 	kafkatSem := collab.NewSemaphoreControl()
 	wsSem := collab.NewSemaphoreControl()
 
-	// Kafka 本地队列 + worker 重试发送（方案A增强）
+	// Kafka 本地队列 + worker 重试发送
 	kafkaDispatcher := collab.NewKafkaDispatcher(
 		producer,
 		cfg.Kafka.Topic,
@@ -121,6 +127,34 @@ func main() {
 	svc := collab.NewInMemoryService(snapshotStore, documentStore, producer, cfg.Kafka.Topic, kafkaDispatcher)
 	manager := ws.NewManager(hub, svc, wsSem)
 
+	// 清理心跳过期用户
+	go func(ctx context.Context) {
+		// 创建一个“定时器”，每隔一段时间往一个 channel 里发一个“时间点”。当到了时间点，channel 会收到一个信号。
+		// 自带循环语义，会一直循环下去，直到 ctx 被取消。
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// 服务关闭时退出
+				return
+			// ticker.C ：只读 channel，不会阻塞，当到了时间点，channel 会收到一个信号。
+			case <-ticker.C:
+				docs, err := presenceCache.GetDocuments(ctx)
+				if err != nil {
+					log.Printf("failed to get documents: %v", err)
+					continue
+				}
+				for _, doc := range docs {
+					if err := presenceCache.CleanExpiredMembers(ctx, doc); err != nil {
+						log.Printf("failed to clean expired members for doc %s: %v", doc, err)
+					}
+				}
+			}
+		}
+	}(ctx)
+
 	r := gin.New()
 	// 中间件
 	r.Use(gin.Logger())
@@ -129,7 +163,7 @@ func main() {
 	// 路由
 	//v1 := r.Group("/v1")
 	collab := r.Group("/collab")
-	// 关键：挂鉴权中间件（会从 Authorization 或 ?token= 提取 token，调用 /v1/auth/verify，并写入 userId/username）
+	// 鉴权中间件（会从 Authorization 或 ?token= 提取 token，调用 /v1/auth/verify，并写入 userId/username）
 	collab.Use(middleware.AuthMiddleware(cfg.Auth.Path))
 	collab.GET("/ws", func(c *gin.Context) { manager.WebSocketConnect(c, hub) })
 	collab.GET("/healthz", func(c *gin.Context) {

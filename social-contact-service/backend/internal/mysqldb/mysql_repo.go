@@ -29,3 +29,7 @@ func (r *mysqlDocRepo) GetDocStats(ctx context.Context, docID string) (*entity.D
 	// 返回结构体，包含文档的全部信息
 	return &stats, nil
 }
+
+func (r *mysqlDocRepo) SetDocStats(ctx context.Context, docID string, stats *entity.DocStats) error {
+	return r.db.WithContext(ctx).Where("doc_id = ?", docID).Updates(stats).Error
+}
