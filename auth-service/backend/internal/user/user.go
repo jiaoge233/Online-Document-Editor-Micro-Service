@@ -36,6 +36,9 @@ func (s *Service) CreateUser(ctx context.Context, username string, passwordHash 
 	// 1. 写库
 	id, err := s.repo.MysqlCreateUser(ctx, username, passwordHash)
 	if err != nil {
+		if errors.Is(err, mysqldb.ErrUsernameTaken) {
+			return 0, ErrUsernameTaken
+		}
 		return 0, err
 	}
 
