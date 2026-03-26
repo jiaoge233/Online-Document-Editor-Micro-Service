@@ -103,7 +103,6 @@
 - 登录：前端 -> `gateway` -> `auth-service` HTTP
 - 鉴权：`gateway` -> `auth-service` gRPC `VerifyToken`
 - 回退：如果 gRPC 不通，就退回 HTTP `Verify`
-
 ## 当前已经支持的分析内容
 
 Spark 现在会计算这些指标：
