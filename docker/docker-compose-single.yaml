@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  redis-single:
+    image: redis:7
+    container_name: redis-single
+    ports:
+      - "6379:6379"
+    command:
+      - "redis-server"
+      - "--port"
+      - "6379"
+      - "--requirepass"
+      - "123456"
+      - "--appendonly"
+      - "yes"

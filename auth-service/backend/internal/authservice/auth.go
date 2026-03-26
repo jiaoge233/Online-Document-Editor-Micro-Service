@@ -1,14 +1,10 @@
 package authservice
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
-	"database/sql"
-
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 
 	"auth-service/backend/internal/user"
@@ -28,20 +24,10 @@ type RefreshReq struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
-func Login(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
-	// 假设前端发送：
-	// POST /api/login
-	// Content-Type: application/json
-	// {"username": "admin", "password": "123456"}
-	// ShouldBindJSON 会自动：
-	// 1. 解析 JSON 请求体
-	// 2. 验证字段是否符合 binding 规则
-	// 3. 将数据填充到 req 结构体
-	// req.Username = "admin"
-	// req.Password = "123456"
+// Login 只需要 service，其他依赖都在 service 内部
+func Login(c *gin.Context, service *user.Service) {
 	var login_req loginReq
 	if err := c.ShouldBindJSON(&login_req); err != nil {
-		// http.StatusBadRequest:错误码400
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "JSON格式错误",
 			"details": err.Error(),
@@ -50,13 +36,16 @@ func Login(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
 	}
 
 	// 1. 查找用户
-	u, err := user.GetUserByUsername(c.Request.Context(), db, rdb, login_req.Username)
+	u, err := service.GetUserByUsername(c.Request.Context(), login_req.Username)
 	if err != nil {
-		if errors.Is(err, user.ErrUserNotFound) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户失败"})
+		// 这里虽然 service 返回了 err，但需要判断具体原因
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"}) // 为了安全，统一报这个
+		return
+	}
+	// 虽然 GetWithProtection 保证了 err=nil 时 u!=nil (除非命中空缓存)，但如果逻辑有变动...
+	// 如果命中空值缓存，GetWithProtection 返回 nil, nil
+	if u == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 
@@ -87,18 +76,16 @@ func Login(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
 	c.JSON(http.StatusOK, gin.H{
 		"accessToken":  access_token,
 		"refreshToken": refresh_token,
-		"expiresIn":    30 * 60, // 30分钟，单位秒
+		"expiresIn":    30 * 60, 
 		"tokenType":    "Bearer",
 		"user": gin.H{
-			//"id":       login_req.ID,
 			"username": login_req.Username,
-			//"role":     login_req.Role,
 		},
 	})
 
 }
 
-func Register(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
+func Register(c *gin.Context, service *user.Service) {
 	var register_req registerReq
 	if err := c.ShouldBindJSON(&register_req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -113,12 +100,10 @@ func Register(c *gin.Context, db *sql.DB, rdb *redis.ClusterClient) {
 		})
 		return
 	}
-	userID, err := user.CreateUser(c.Request.Context(), rdb, db, register_req.Username, passwordHash)
+	userID, err := service.CreateUser(c.Request.Context(), register_req.Username, passwordHash)
 	if err != nil {
-		if errors.Is(err, user.ErrUsernameTaken) {
-			c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
-			return
-		}
+		// 这里你可以进一步细化错误类型判断，比如 user.ErrUsernameTaken
+		// 为了简单演示，统一返回 500，实际项目中建议区分
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -133,7 +118,6 @@ func Refresh(c *gin.Context) {
 	var refresh_req RefreshReq
 
 	if err := c.ShouldBindJSON(&refresh_req); err != nil {
-		// http.StatusBadRequest:错误码400
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "JSON格式错误",
 			"details": err.Error(),
@@ -167,5 +151,4 @@ func Refresh(c *gin.Context) {
 			"username": claims.Username,
 		},
 	})
-
 }

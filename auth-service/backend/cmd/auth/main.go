@@ -15,6 +15,9 @@ import (
 	"github.com/spf13/viper"
 
 	"auth-service/backend/internal/authservice"
+	"auth-service/backend/internal/cache"
+	mysqldb "auth-service/backend/internal/mysql_db"
+	"auth-service/backend/internal/user"
 )
 
 type AuthConfig struct {
@@ -69,6 +72,11 @@ func main() {
 		Password: cfg.Redis.Password,
 	})
 
+	presence := cache.NewPresenceCache(rdb)
+	repo := mysqldb.NewMySQLDocRepo(db)
+	// 修改：注入 presence 而不是 rdb
+	service := user.NewService(repo, presence)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
@@ -77,18 +85,16 @@ func main() {
 	defer db.Close()
 
 	r := gin.New()
-	// 使用gin.Logger()和gin.Recovery()中间件，记录请求日志和恢复panic
 	r.Use(gin.Logger(), gin.Recovery())
 
 	// 路由
 	v1 := r.Group("/v1")
 	auth := v1.Group("/auth")
-	auth.POST("/login", func(c *gin.Context) { authservice.Login(c, db, rdb) })
-	auth.POST("/register", func(c *gin.Context) { authservice.Register(c, db, rdb) })
+	// 修改：只传 service
+	auth.POST("/login", func(c *gin.Context) { authservice.Login(c, service) })
+	auth.POST("/register", func(c *gin.Context) { authservice.Register(c, service) })
 	auth.POST("/verify", func(c *gin.Context) {
-		// 正确返回 200 + JSON(claims)；失败返回 401 + JSON(error)
 		authz := c.GetHeader("Authorization")
-		// 请求头通常长这样： Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 		parts := strings.SplitN(authz, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid Authorization header"})
