@@ -3,6 +3,7 @@ package ws
 import (
 	"time"
 
+	"collabServer/backend/internal/collab"
 	"collabServer/backend/internal/ot/delta"
 )
 
@@ -12,10 +13,14 @@ type ClientMessage struct {
 	DocTitle     string      `json:"docTitle"`
 	Range        interface{} `json:"range,omitempty"`
 	BaseRevision uint64      `json:"baseRevision"`
-	ClientId     string      `json:"clientId"`
-	ClientSeq    uint64      `json:"clientSeq"`
-	Ops          delta.Delta `json:"ops"`
-	Content      string      `json:"content,omitempty"`
+	// FromRevision 用于向服务端请求“某个版本之后的增量操作”，帮助客户端追平本地状态。
+	FromRevision uint64 `json:"fromRevision,omitempty"`
+	ClientId     string `json:"clientId"`
+	ClientSeq    uint64 `json:"clientSeq"`
+	// Limit 用于限制一次返回的操作数量，避免冲突恢复时单次消息过大。
+	Limit   int         `json:"limit,omitempty"`
+	Ops     delta.Delta `json:"ops"`
+	Content string      `json:"content,omitempty"`
 }
 
 type PresenceMember struct {
@@ -67,4 +72,29 @@ type OpAppliedMessage struct {
 	CurrentRevision uint64 `json:"currentRevision"` // 服务端应用后的最新版本
 	ClientId        string `json:"clientId"`
 	ClientSeq       uint64 `json:"clientSeq"`
+}
+
+// RevisionConflictMessage 是结构化冲突响应：
+// 当客户端基于旧 revision 提交编辑时，服务端会返回当前版本和可用于追平的 missing ops。
+type RevisionConflictMessage struct {
+	Type            string             `json:"type"` // 固定 "revision_conflict"
+	DocID           string             `json:"docId"`
+	BaseRevision    uint64             `json:"baseRevision"`
+	CurrentRevision uint64             `json:"currentRevision"`
+	ClientId        string             `json:"clientId"`
+	ClientSeq       uint64             `json:"clientSeq"`
+	MissingOps      []collab.AppliedOp `json:"missingOps,omitempty"`
+	ReloadRequired  bool               `json:"reloadRequired,omitempty"`
+	Hint            string             `json:"hint,omitempty"`
+}
+
+// OpsSinceMessage 用于返回 fromRevision 之后的操作列表，
+// 让客户端在不整篇 reload 的情况下补齐缺失变更。
+type OpsSinceMessage struct {
+	Type            string             `json:"type"` // 固定 "ops_since"
+	DocID           string             `json:"docId"`
+	FromRevision    uint64             `json:"fromRevision"`
+	CurrentRevision uint64             `json:"currentRevision"`
+	Ops             []collab.AppliedOp `json:"ops,omitempty"`
+	ReloadRequired  bool               `json:"reloadRequired,omitempty"`
 }
