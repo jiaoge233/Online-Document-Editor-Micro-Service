@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"collabServer/backend/internal/cache"
+	"collabServer/backend/internal/collab"
 	"collabServer/backend/internal/ot/delta"
 )
 
@@ -62,17 +63,26 @@ func (h *Hub) BroadcastPresence(docID string, members []PresenceMember) {
 	}
 }
 
-func (h *Hub) BroadcastAppliedOp(docID string, sender *Conn, userID uint64, rng interface{}) {
+// BroadcastAppliedOp 把“已被服务端接受”的操作广播给同文档其他连接。
+// 这里显式带上 applied.Revision，方便其他协作者对齐本地版本号。
+func (h *Hub) BroadcastAppliedOp(docID string, sender *Conn, applied collab.AppliedOp, clientID string, clientSeq uint64) {
 	h.mu.RLock()
 	conns := h.rooms[docID]
 	h.mu.RUnlock()
-	if rng, ok := rng.(delta.Delta); ok {
-		msg := OpBroadcastMessage{Type: "op_broadcast", DocID: docID, AuthorID: sender.userID, ClientId: sender.clientID, ClientSeq: sender.clientSeq, Ops: rng}
-		for c := range conns {
-			if c == sender {
-				continue
-			}
-			c.SendMessage_Enqueue(msg)
+	msg := OpBroadcastMessage{
+		Type:      "op_broadcast",
+		DocID:     docID,
+		Revision:  applied.Revision,
+		AuthorID:  applied.AuthorId,
+		ClientId:  clientID,
+		ClientSeq: clientSeq,
+		Ops:       delta.Delta(applied.Ops),
+		AppliedAt: applied.AppliedAt,
+	}
+	for c := range conns {
+		if c == sender {
+			continue
 		}
+		c.SendMessage_Enqueue(msg)
 	}
 }

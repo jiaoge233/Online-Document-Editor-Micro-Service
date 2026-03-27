@@ -3,6 +3,7 @@ package ws
 import (
 	// "time"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -41,6 +42,13 @@ func (m OpSubmitMessage) MessageType() string    { return m.Type }
 func (m OpAppliedMessage) MessageType() string   { return m.Type }
 func (m OpBroadcastMessage) MessageType() string { return m.Type }
 
+// - revision_conflict: 提交命中过期版本时返回
+// - ops_since: 客户端主动请求缺失操作时返回
+func (m RevisionConflictMessage) MessageType() string {
+	return m.Type
+}
+func (m OpsSinceMessage) MessageType() string { return m.Type }
+
 func NewConn(ws *websocket.Conn, hub *Hub, docID string, userID uint64, username string, svc collab.Service, sem *collab.SemaphoreControl) *Conn {
 	return &Conn{ws: ws, hub: hub, docID: docID, userID: userID, username: username, send: make(chan OutboundMessage, 32), svc: svc, sem: sem}
 }
@@ -60,6 +68,37 @@ func (c *Conn) SendMessage_Enqueue(msg OutboundMessage) {
 	}
 }
 
+// sendRevisionConflict 在提交命中旧版本时返回结构化冲突信息，
+// 把“当前版本 + 缺失操作”一起带回去，减少前端额外请求次数。
+func (c *Conn) sendRevisionConflict(ctx context.Context, msg OpSubmitMessage) {
+	currentRevision, err := c.svc.CurrentRevision(ctx, msg.DocID)
+	if err != nil {
+		c.SendMessage_Enqueue(ServerMessage{Type: "error", Content: err.Error()})
+		return
+	}
+
+	missingOps, err := c.svc.OpsSince(ctx, msg.DocID, msg.BaseRevision, 256)
+	if err != nil {
+		c.SendMessage_Enqueue(ServerMessage{Type: "error", Content: err.Error()})
+		return
+	}
+
+	// 如果服务端当前版本和返回的 missingOps 数量对不上，说明可能已经以为超出环形缓冲容量被舍弃，
+	// 此时提醒客户端直接 reload 全量文档会更安全。
+	reloadRequired := currentRevision > msg.BaseRevision && uint64(len(missingOps)) < currentRevision-msg.BaseRevision
+	c.SendMessage_Enqueue(RevisionConflictMessage{
+		Type:            "revision_conflict",
+		DocID:           msg.DocID,
+		BaseRevision:    msg.BaseRevision,
+		CurrentRevision: currentRevision,
+		ClientId:        msg.ClientId,
+		ClientSeq:       msg.ClientSeq,
+		MissingOps:      missingOps,
+		ReloadRequired:  reloadRequired,
+		Hint:            "refresh local revision with missingOps or reload the full document before retrying",
+	})
+}
+
 func (c *Conn) handleOpSubmit(ctx context.Context, msg OpSubmitMessage, authorID uint64) {
 	OpSubmitCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
@@ -70,15 +109,53 @@ func (c *Conn) handleOpSubmit(ctx context.Context, msg OpSubmitMessage, authorID
 	}
 	defer c.sem.Release()
 
-	_, err := c.svc.Submit(OpSubmitCtx, msg.DocID, authorID,
+	appliedOp, err := c.svc.Submit(OpSubmitCtx, msg.DocID, authorID,
 		msg.BaseRevision, msg.ClientId, msg.ClientSeq, msg.Ops)
+	if err != nil {
+		if errors.Is(err, collab.ErrRevisionConflict) {
+			// 对 revision 冲突走专门分支，返回结构化数据给前端做自动恢复。
+			c.sendRevisionConflict(OpSubmitCtx, msg)
+			return
+		}
+		c.SendMessage_Enqueue(ServerMessage{Type: "error", Content: err.Error()})
+		return
+	}
+
+	// 记录本连接最近一次成功提交的 client 标识，便于广播时携带来源信息。
+	c.clientID = msg.ClientId
+	c.clientSeq = msg.ClientSeq
+	c.SendMessage_Enqueue(OpAppliedMessage{Type: "op_applied", DocID: msg.DocID, BaseRevision: msg.BaseRevision, CurrentRevision: appliedOp.Revision, ClientId: msg.ClientId, ClientSeq: msg.ClientSeq})
+	c.hub.BroadcastAppliedOp(msg.DocID, c, appliedOp, msg.ClientId, msg.ClientSeq)
+}
+
+// handleOpsSince 为客户端提供“增量追平”能力：
+// 传入 fromRevision 后，返回该版本之后的操作列表和当前最新版本。
+func (c *Conn) handleOpsSince(ctx context.Context, clientMessage ClientMessage) {
+	opsSinceCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+
+	ops, err := c.svc.OpsSince(opsSinceCtx, clientMessage.DocID, clientMessage.FromRevision, clientMessage.Limit)
 	if err != nil {
 		c.SendMessage_Enqueue(ServerMessage{Type: "error", Content: err.Error()})
 		return
 	}
-	curr_revision, _ := c.svc.CurrentRevision(ctx, msg.DocID)
-	c.SendMessage_Enqueue(OpAppliedMessage{Type: "op_applied", DocID: msg.DocID, BaseRevision: msg.BaseRevision, CurrentRevision: curr_revision, ClientId: msg.ClientId, ClientSeq: msg.ClientSeq})
-	c.hub.BroadcastAppliedOp(msg.DocID, c, c.userID, msg.Ops)
+
+	currentRevision, err := c.svc.CurrentRevision(opsSinceCtx, clientMessage.DocID)
+	if err != nil {
+		c.SendMessage_Enqueue(ServerMessage{Type: "error", Content: err.Error()})
+		return
+	}
+
+	// 返回的 ops 不足以覆盖版本差时，提示客户端放弃增量追平，改为全量重载。
+	reloadRequired := currentRevision > clientMessage.FromRevision && uint64(len(ops)) < currentRevision-clientMessage.FromRevision
+	c.SendMessage_Enqueue(OpsSinceMessage{
+		Type:            "ops_since",
+		DocID:           clientMessage.DocID,
+		FromRevision:    clientMessage.FromRevision,
+		CurrentRevision: currentRevision,
+		Ops:             ops,
+		ReloadRequired:  reloadRequired,
+	})
 }
 
 func (c *Conn) readLoop(ctx context.Context) {
@@ -183,11 +260,16 @@ func (c *Conn) readLoop(ctx context.Context) {
 			}
 			c.handleOpSubmit(ctx, msg, c.userID)
 
+		case "opsSince":
+			// 客户端可在 revision_conflict 后调用此消息，主动补齐缺失操作。
+			c.handleOpsSince(ctx, clientMessage)
+
 		case "saveDocument":
 			err := c.svc.SaveSnapshot(ctx, clientMessage.DocID)
 			if err != nil {
 				log.Printf("save document error: %v", err)
 				c.send <- ServerMessage{Type: "saveDocument", Content: "Document " + clientMessage.DocID + " save failed"}
+				continue
 			}
 			c.send <- ServerMessage{Type: "saveDocument", Content: "Document " + clientMessage.DocID + " saved"}
 
