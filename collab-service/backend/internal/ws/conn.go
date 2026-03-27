@@ -271,7 +271,7 @@ func (c *Conn) readLoop(ctx context.Context) {
 				c.send <- ServerMessage{Type: "saveDocument", Content: "Document " + clientMessage.DocID + " save failed"}
 				continue
 			}
-			c.send <- ServerMessage{Type: "saveDocument", Content: "Document " + clientMessage.DocID + " saved"}
+			c.send <- ServerMessage{Type: "saveDocument", Content: "Document " + clientMessage.DocID + " save queued"}
 
 		case "loadDocumentContent":
 			content, revision, err := c.svc.LoadDocumentContent(ctx, clientMessage.DocID)
