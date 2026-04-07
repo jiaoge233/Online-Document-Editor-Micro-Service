@@ -38,6 +38,19 @@ type CollabConfig struct {
 	Kafka struct {
 		Brokers []string `mapstructure:"brokers"`
 		Topic   string   `mapstructure:"topic"`
+		// PersistTopic 是首次持久化任务进入的主队列。
+		PersistTopic string `mapstructure:"persistTopic"`
+		// PersistRetryTopic 用于承接业务落库失败后、仍允许继续重试的任务。
+		PersistRetryTopic string `mapstructure:"persistRetryTopic"`
+		// PersistDLQTopic 存放达到最大重试次数后仍失败的任务，默认不自动消费。
+		PersistDLQTopic     string `mapstructure:"persistDLQTopic"`
+		PersistGroup        string `mapstructure:"persistGroup"`
+		SnapshotDebounceMs  int    `mapstructure:"snapshotDebounceMs"`
+		PersistQueueSize    int    `mapstructure:"persistQueueSize"`
+		PersistWorkers      int    `mapstructure:"persistWorkers"`
+		PersistJobTimeoutMs int    `mapstructure:"persistJobTimeoutMs"`
+		// PersistMaxRetry 是业务落库失败后的最大重试次数。
+		PersistMaxRetry int `mapstructure:"persistMaxRetry"`
 	} `mapstructure:"Kafka"`
 	WAL struct {
 		Path string `mapstructure:"path"`
@@ -118,7 +131,7 @@ func main() {
 	kafkatSem := collab.NewSemaphoreControl()
 	wsSem := collab.NewSemaphoreControl()
 
-	// Kafka 本地队列 + worker 重试发送
+	// Kafka 本地队列 + worker 重试发送（操作事件）
 	kafkaDispatcher := collab.NewKafkaDispatcher(
 		producer,
 		cfg.Kafka.Topic,
@@ -133,10 +146,60 @@ func main() {
 		},
 	)
 
-	svc := collab.NewInMemoryService(snapshotStore, documentStore, producer, cfg.Kafka.Topic, kafkaDispatcher, wal)
+	persistDispatcher := collab.NewPersistDispatcher(
+		producer,
+		cfg.Kafka.PersistTopic,
+		kafkatSem,
+		collab.PersistDispatcherOptions{
+			QueueSize:   cfg.Kafka.PersistQueueSize,
+			Workers:     cfg.Kafka.PersistWorkers,
+			MaxRetry:    3,
+			BaseBackoff: 50 * time.Millisecond,
+			MaxBackoff:  1 * time.Second,
+		},
+	)
+
+	snapshotDebounce := time.Duration(cfg.Kafka.SnapshotDebounceMs) * time.Millisecond
+	if snapshotDebounce <= 0 {
+		snapshotDebounce = 2 * time.Second
+	}
+
+	svc := collab.NewInMemoryService(
+		snapshotStore,
+		documentStore,
+		producer,
+		cfg.Kafka.Topic,
+		kafkaDispatcher,
+		persistDispatcher,
+		snapshotDebounce,
+		wal,
+	)
 	if err := svc.RecoverFromWAL(ctx); err != nil {
 		log.Fatalf("failed to recover wal: %v", err)
 	}
+
+	persistWorkerPool := collab.NewPersistWorkerPool(
+		svc,
+		cfg.Kafka.PersistQueueSize,
+		cfg.Kafka.PersistWorkers,
+		time.Duration(cfg.Kafka.PersistJobTimeoutMs)*time.Millisecond,
+	)
+	persistConsumer, err := collab.NewPersistConsumer(
+		cfg.Kafka.Brokers,
+		cfg.Kafka.PersistGroup,
+		// consumer 同时订阅主队列和重试队列；死信队列仅用于兜底留存。
+		[]string{cfg.Kafka.PersistTopic, cfg.Kafka.PersistRetryTopic},
+		cfg.Kafka.PersistRetryTopic,
+		cfg.Kafka.PersistDLQTopic,
+		cfg.Kafka.PersistMaxRetry,
+		producer,
+		persistWorkerPool,
+	)
+	if err != nil {
+		log.Fatalf("failed to init persist consumer: %v", err)
+	}
+	defer persistConsumer.Close()
+	persistConsumer.Start(ctx)
 	manager := ws.NewManager(hub, svc, wsSem)
 
 	// 清理心跳过期用户

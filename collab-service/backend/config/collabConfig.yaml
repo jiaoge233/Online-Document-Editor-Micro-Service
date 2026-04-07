@@ -18,6 +18,15 @@ kafka:
   brokers:
     - localhost:9092
   topic: doc-ops
+  persistTopic: doc-snapshots
+  persistRetryTopic: doc-snapshots-retry
+  persistDLQTopic: doc-snapshots-dlq
+  persistGroup: collab-snapshot-persister
+  snapshotDebounceMs: 2000
+  persistQueueSize: 1024
+  persistWorkers: 4
+  persistJobTimeoutMs: 3000
+  persistMaxRetry: 3
 
 wal:
   path: ./backend/data/collab.wal

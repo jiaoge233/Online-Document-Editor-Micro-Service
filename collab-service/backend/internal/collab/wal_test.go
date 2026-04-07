@@ -93,7 +93,7 @@ func TestRecoverFromWALRestoresDocumentContent(t *testing.T) {
 		t.Fatalf("NewFileWAL() error = %v", err)
 	}
 
-	svc := NewInMemoryService(nil, nil, nil, "", nil, wal)
+	svc := NewInMemoryService(nil, nil, nil, "", nil, nil, 0, wal)
 
 	if _, err := svc.Submit(ctx, "doc-1", 1001, 0, "c-1", 1, delta.Delta{
 		{Kind: delta.KindInsert, Text: "Hello"},
@@ -118,7 +118,7 @@ func TestRecoverFromWALRestoresDocumentContent(t *testing.T) {
 	}
 	defer replayWAL.Close()
 
-	recovered := NewInMemoryService(nil, nil, nil, "", nil, replayWAL)
+	recovered := NewInMemoryService(nil, nil, nil, "", nil, nil, 0, replayWAL)
 	if err := recovered.RecoverFromWAL(ctx); err != nil {
 		t.Fatalf("RecoverFromWAL() error = %v", err)
 	}
