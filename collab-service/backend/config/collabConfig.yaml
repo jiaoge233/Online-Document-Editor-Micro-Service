@@ -19,5 +19,8 @@ kafka:
     - localhost:9092
   topic: doc-ops
 
+wal:
+  path: ./backend/data/collab.wal
+
 Auth:
   path: http://localhost:3001
