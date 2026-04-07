@@ -28,5 +28,8 @@ kafka:
   persistJobTimeoutMs: 3000
   persistMaxRetry: 3
 
+wal:
+  path: ./backend/data/collab.wal
+
 Auth:
   path: http://localhost:3001
