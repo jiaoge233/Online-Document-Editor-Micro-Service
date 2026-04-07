@@ -28,6 +28,8 @@ type Service interface {
 
 	SaveSnapshot(ctx context.Context, docID string) error
 
+	RecoverFromWAL(ctx context.Context) error
+
 	GetDocumentID(ctx context.Context, title string) (string, error)
 
 	CreateDocument(ctx context.Context, ownerID uint64, title string) error
@@ -82,10 +84,11 @@ type InMemoryService struct {
 	kafkaTopic string
 
 	kafkaDispatcher *KafkaDispatcher
+	wal             WAL
 }
 
 // NewInMemoryService 返回一个满足 Service 接口的实例
-func NewInMemoryService(store SnapshotStore, documentStore DocumentStore, kafka sarama.SyncProducer, kafkaTopic string, kafkaDispatcher *KafkaDispatcher) Service {
+func NewInMemoryService(store SnapshotStore, documentStore DocumentStore, kafka sarama.SyncProducer, kafkaTopic string, kafkaDispatcher *KafkaDispatcher, wal WAL) Service {
 	return &InMemoryService{
 		docs:            make(map[string]*docState),
 		ringCap:         1024, // 近期操作环形缓冲容量，可按需调整
@@ -94,6 +97,7 @@ func NewInMemoryService(store SnapshotStore, documentStore DocumentStore, kafka 
 		kafka:           kafka,
 		kafkaTopic:      kafkaTopic,
 		kafkaDispatcher: kafkaDispatcher,
+		wal:             wal,
 	}
 }
 
@@ -136,6 +140,30 @@ func (s *InMemoryService) getOrCreateDoc(docID string) *docState {
 
 // 提交操作（InMemoryService 实现）
 func (s *InMemoryService) Submit(ctx context.Context, docID string, authorID uint64, baseRevision uint64, clientId string, clientSeq uint64, ops delta.Delta) (AppliedOp, error) {
+	operationID := fmt.Sprintf("o-%d", time.Now().UnixNano())
+	receivedAt := time.Now()
+
+	if s.wal != nil {
+		entry := WALEntry{
+			Type:         "op_submit",
+			OperationID:  operationID,
+			DocID:        docID,
+			AuthorID:     authorID,
+			BaseRevision: baseRevision,
+			ClientID:     clientId,
+			ClientSeq:    clientSeq,
+			Ops:          ops,
+			ReceivedAt:   receivedAt,
+		}
+		if err := s.wal.Append(ctx, entry); err != nil {
+			return AppliedOp{}, err
+		}
+	}
+
+	return s.submitInternal(ctx, docID, authorID, baseRevision, clientId, clientSeq, ops, operationID, receivedAt, true)
+}
+
+func (s *InMemoryService) submitInternal(ctx context.Context, docID string, authorID uint64, baseRevision uint64, clientId string, clientSeq uint64, ops delta.Delta, operationID string, appliedAt time.Time, emitKafka bool) (AppliedOp, error) {
 	ds := s.getOrCreateDoc(docID)
 	// 加锁，保护 ds 的并发访问（map）
 	ds.mu.Lock()
@@ -161,11 +189,11 @@ func (s *InMemoryService) Submit(ctx context.Context, docID string, authorID uin
 	// 推进版本
 	ds.revision++
 	appliedOp := AppliedOp{
-		OperationId: fmt.Sprintf("o-%d", time.Now().UnixNano()),
+		OperationId: operationID,
 		Revision:    ds.revision,
 		AuthorId:    authorID,
 		Ops:         ops,
-		AppliedAt:   time.Now(),
+		AppliedAt:   appliedAt,
 	}
 
 	// 保存到环形缓冲（如果达到容量则丢弃最老的一条）
@@ -179,7 +207,7 @@ func (s *InMemoryService) Submit(ctx context.Context, docID string, authorID uin
 	ds.lastSeqByClient[clientId] = clientSeq
 
 	// 异步发 Kafka（不阻塞主流程）
-	if s.kafkaDispatcher != nil && s.kafka != nil && s.kafkaTopic != "" {
+	if emitKafka && s.kafkaDispatcher != nil && s.kafka != nil && s.kafkaTopic != "" {
 		evt := DocOpEvent{
 			EventType:    "OP_APPLIED",
 			DocID:        docID,
@@ -203,6 +231,35 @@ func (s *InMemoryService) Submit(ctx context.Context, docID string, authorID uin
 	}
 
 	return appliedOp, nil
+}
+
+func (s *InMemoryService) RecoverFromWAL(ctx context.Context) error {
+	if s.wal == nil {
+		return nil
+	}
+
+	return s.wal.Replay(ctx, func(replayCtx context.Context, entry WALEntry) error {
+		if entry.Type != "op_submit" {
+			return nil
+		}
+		_, err := s.submitInternal(
+			replayCtx,
+			entry.DocID,
+			entry.AuthorID,
+			entry.BaseRevision,
+			entry.ClientID,
+			entry.ClientSeq,
+			entry.Ops,
+			entry.OperationID,
+			entry.ReceivedAt,
+			false,
+		)
+		if errors.Is(err, ErrDuplicateOrOutOfOrder) || errors.Is(err, ErrRevisionConflict) {
+			// 重放阶段允许跳过历史上本来就未成功应用的请求。
+			return nil
+		}
+		return err
+	})
 }
 
 // 返回当前文档版本

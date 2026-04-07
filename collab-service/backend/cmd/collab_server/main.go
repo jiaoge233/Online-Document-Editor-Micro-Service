@@ -39,6 +39,9 @@ type CollabConfig struct {
 		Brokers []string `mapstructure:"brokers"`
 		Topic   string   `mapstructure:"topic"`
 	} `mapstructure:"Kafka"`
+	WAL struct {
+		Path string `mapstructure:"path"`
+	} `mapstructure:"WAL"`
 	Auth struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"Auth"`
@@ -105,6 +108,12 @@ func main() {
 	snapshotStore := store.NewSnapshotStore(db)
 	documentStore := store.NewDocumentStore(db)
 
+	wal, err := collab.NewFileWAL(cfg.WAL.Path)
+	if err != nil {
+		log.Fatalf("failed to init wal: %v", err)
+	}
+	defer wal.Close()
+
 	// 构造协作引擎具体实现（内存版）
 	kafkatSem := collab.NewSemaphoreControl()
 	wsSem := collab.NewSemaphoreControl()
@@ -124,7 +133,10 @@ func main() {
 		},
 	)
 
-	svc := collab.NewInMemoryService(snapshotStore, documentStore, producer, cfg.Kafka.Topic, kafkaDispatcher)
+	svc := collab.NewInMemoryService(snapshotStore, documentStore, producer, cfg.Kafka.Topic, kafkaDispatcher, wal)
+	if err := svc.RecoverFromWAL(ctx); err != nil {
+		log.Fatalf("failed to recover wal: %v", err)
+	}
 	manager := ws.NewManager(hub, svc, wsSem)
 
 	// 清理心跳过期用户
